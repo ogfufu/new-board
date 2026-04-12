@@ -871,7 +871,14 @@
 
     if (sortCol) {
       rows = [...rows].sort((a, b) => {
-        let va = a[sortCol], vb = b[sortCol];
+        // 投信 sorts by monetary value (張 × 股價), not raw lots
+        let va, vb;
+        if (sortCol === '投信') {
+          va = (a['投信'] != null && a['股價'] != null) ? a['投信'] * a['股價'] : null;
+          vb = (b['投信'] != null && b['股價'] != null) ? b['投信'] * b['股價'] : null;
+        } else {
+          va = a[sortCol]; vb = b[sortCol];
+        }
         if (va == null) va = sortDir === 'asc' ?  Infinity : -Infinity;
         if (vb == null) vb = sortDir === 'asc' ?  Infinity : -Infinity;
         if (typeof va === 'number' && typeof vb === 'number')
