@@ -319,6 +319,37 @@
     .ind-tooltip td:nth-child(2) { color: var(--text); }
     .ind-tooltip td:nth-child(3) { text-align: right; font-weight: 600; min-width: 52px; }
 
+    /* ── Chart modal ── */
+    .chart-modal {
+      display: none; position: fixed; inset: 0; z-index: 10000;
+      background: rgba(0,0,0,.65);
+      align-items: center; justify-content: center;
+    }
+    .chart-modal.visible { display: flex; }
+    .chart-modal-inner {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      width: min(940px, 96vw);
+      height: min(620px, 92vh);
+      display: flex; flex-direction: column; overflow: hidden;
+      box-shadow: 0 16px 48px rgba(0,0,0,.6);
+    }
+    .chart-modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .chart-modal-title { font-weight: 700; font-size: 14px; color: var(--text); }
+    .chart-modal-close {
+      background: none; border: none; color: var(--muted);
+      font-size: 17px; cursor: pointer; padding: 2px 7px; border-radius: 4px; line-height: 1;
+    }
+    .chart-modal-close:hover { color: var(--red); background: rgba(248,81,73,.12); }
+    #tv-container { flex: 1; min-height: 0; }
+    #tv-container > div { width: 100% !important; height: 100% !important; }
+    .td-code[data-code] { cursor: pointer; }
+    .td-code[data-code]:hover { text-decoration: underline; color: var(--accent); }
+
     /* K-bar hover tooltip */
     #kbar-tooltip {
       display: none;
@@ -606,6 +637,17 @@
     <span class="sectors-hint">資料來源：即時排行榜（需先載入資料）</span>
   </div>
   <div class="sectors-grid" id="sectors-grid"></div>
+</div>
+
+<!-- Daily K chart modal -->
+<div class="chart-modal" id="chart-modal">
+  <div class="chart-modal-inner">
+    <div class="chart-modal-header">
+      <span class="chart-modal-title" id="chart-modal-title">日K圖</span>
+      <button class="chart-modal-close" id="chart-modal-close">✕</button>
+    </div>
+    <div id="tv-container"></div>
+  </div>
 </div>
 
 <!-- K-bar hover tooltip -->
@@ -913,7 +955,7 @@
         }
         if (col === '代號') {
           const crown = (prevHistCodes.size > 0 && !prevHistCodes.has(String(val))) ? '<span class="crown">👑</span>' : '';
-          return `<td class="td-code${hl ? ' code-hl' : ''}">${crown}${val ?? '—'}</td>`;
+          return `<td class="td-code${hl ? ' code-hl' : ''}" data-code="${val}" data-name="${(r['名稱']||'').replace(/"/g,'&quot;')}">${crown}${val ?? '—'}</td>`;
         }
         if (col === '名稱')    return `<td class="td-name">${val ?? '—'}</td>`;
         if (col === '產業類型') return `<td class="td-industry">${val ?? '—'}</td>`;
@@ -1469,6 +1511,62 @@
   });
 
   window.addEventListener('resize', renderOverviewChart);
+
+  // ── Daily K-chart modal (TradingView widget) ──
+  let tvReady = false, tvLoading = false, tvQueue = [];
+
+  function ensureTVScript(cb) {
+    if (tvReady)  { cb(); return; }
+    tvQueue.push(cb);
+    if (tvLoading) return;
+    tvLoading = true;
+    const s = document.createElement('script');
+    s.src = 'https://s3.tradingview.com/tv.js';
+    s.onload = () => { tvReady = true; tvQueue.forEach(f => f()); tvQueue = []; };
+    document.head.appendChild(s);
+  }
+
+  function openChartModal(code, name) {
+    document.getElementById('chart-modal-title').textContent = `${code}　${name}　日K圖`;
+    document.getElementById('chart-modal').classList.add('visible');
+    ensureTVScript(() => {
+      const wrap = document.getElementById('tv-container');
+      wrap.innerHTML = '<div id="tv_chart"></div>';
+      new TradingView.widget({
+        autosize:           true,
+        symbol:             `TWSE:${code}`,
+        interval:           'D',
+        timezone:           'Asia/Taipei',
+        theme:              'dark',
+        style:              '1',
+        locale:             'zh_TW',
+        enable_publishing:  false,
+        allow_symbol_change: true,
+        hide_top_toolbar:   false,
+        save_image:         false,
+        container_id:       'tv_chart',
+      });
+    });
+  }
+
+  function closeChartModal() {
+    document.getElementById('chart-modal').classList.remove('visible');
+    document.getElementById('tv-container').innerHTML = '';
+  }
+
+  document.getElementById('chart-modal-close').addEventListener('click', closeChartModal);
+  document.getElementById('chart-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeChartModal();   // click backdrop
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeChartModal();
+  });
+
+  // Click delegation on table body
+  document.getElementById('table-body').addEventListener('click', e => {
+    const td = e.target.closest('td.td-code[data-code]');
+    if (td && td.dataset.code) openChartModal(td.dataset.code, td.dataset.name || '');
+  });
 
   // ── Init ──
   fetchStocks();
