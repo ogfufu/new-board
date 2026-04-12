@@ -18,7 +18,8 @@ HEADERS = {
     )
 }
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'history.db')
+DB_PATH      = os.path.join(os.path.dirname(__file__), 'history.db')
+BACKUP_XLSX  = os.path.join(os.path.dirname(__file__), 'backup.xlsx')
 KEEP_DAYS = 5
 
 # ---------- SQLite history ----------
@@ -254,7 +255,7 @@ def index():
 
 @app.route('/api/backup', methods=['POST'])
 def api_backup():
-    """Save current data as crown reference baseline + date snapshot."""
+    """Save current data to Excel file + update crown reference baseline."""
     global _last_df
     if _last_df is None:
         try:
@@ -262,12 +263,43 @@ def api_backup():
         except Exception as e:
             return jsonify({'success': False, 'error': f'資料抓取失敗：{str(e)}'}), 500
     try:
-        save_crown_ref(_last_df)                                    # crown baseline
+        save_crown_ref(_last_df)
+        _last_df.to_excel(BACKUP_XLSX, index=False, engine='openpyxl')
         target_date = last_trading_day()
-        save_snapshot(_last_df, target_date, overwrite=True)        # date snapshot
         return jsonify({'success': True, 'date': target_date})
     except Exception as e:
         return jsonify({'success': False, 'error': f'儲存失敗：{str(e)}'}), 500
+
+
+@app.route('/api/backup-status')
+def api_backup_status():
+    """Return whether a backup Excel file exists and when it was created."""
+    exists = os.path.exists(BACKUP_XLSX)
+    date_str = None
+    if exists:
+        mtime = os.path.getmtime(BACKUP_XLSX)
+        date_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
+    return jsonify({'exists': exists, 'date': date_str})
+
+
+@app.route('/api/history-excel')
+def api_history_excel():
+    """Return the backed-up ranking from the Excel file."""
+    if not os.path.exists(BACKUP_XLSX):
+        return jsonify({'success': False, 'error': '尚無備份資料'}), 404
+    try:
+        df = pd.read_excel(BACKUP_XLSX, engine='openpyxl')
+        df = df.where(pd.notnull(df), None)
+        if '代號' in df.columns:
+            df['代號'] = df['代號'].astype(str)
+        if '投信' in df.columns:
+            df['投信'] = pd.to_numeric(df['投信'], errors='coerce').fillna(0).round().astype(int)
+        records = df.to_dict(orient='records')
+        mtime = os.path.getmtime(BACKUP_XLSX)
+        date_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
+        return jsonify({'success': True, 'data': records, 'date': date_str})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/crown-ref')

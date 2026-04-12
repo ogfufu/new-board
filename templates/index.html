@@ -445,7 +445,8 @@
     .sector-card.dragging  { opacity: 0.4; }
     .sector-card.drag-over { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
-    /* Watchlist card: codes wrap */
+    /* Watchlist card: full grid width + wrapping code inputs */
+    .watchlist-card { grid-column: 1 / -1; }
     .watch-codes { flex-wrap: wrap !important; }
     .watch-codes .sector-code-input { flex: none; width: 64px; }
 
@@ -668,7 +669,7 @@
       renderAllSectorCharts();
       setStatus('');
       prevRanks = newRanks;
-      loadHistoryDates();
+      loadBackupStatus();
       loadCrownRef();
     } catch (e) {
       setStatus('error', '❌ 抓取失敗：' + e.message);
@@ -1013,9 +1014,8 @@
       const res  = await fetch('/api/backup', { method: 'POST' });
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
-      localStorage.setItem('rack_backup_date', json.date);
       btn.textContent = `✔ 已備份至 ${json.date}`;
-      loadHistoryDates();
+      loadBackupStatus();
       loadCrownRef();
     } catch (e) {
       btn.textContent = '❌ 備份失敗';
@@ -1025,49 +1025,35 @@
     setTimeout(() => { btn.textContent = '💾 備份到歷史'; btn.disabled = false; }, 2500);
   });
 
-  // ── History ──
+  // ── History (Excel-based, only today + yesterday backup) ──
   const histBtns    = document.getElementById('hist-btns');
   const histViewing = document.getElementById('hist-viewing');
-  let currentDate   = null;   // null = live
+  let currentDate   = null;   // null = live, 'excel' = backup
 
-  async function loadHistoryDates() {
+  async function loadBackupStatus() {
     try {
-      const res  = await fetch('/api/history');
+      const res  = await fetch('/api/backup-status');
       const json = await res.json();
-      renderHistBtns(json.dates || []);
-    } catch (e) { /* silent */ }
+      renderHistBtns(json.exists, json.date);
+    } catch { renderHistBtns(false, null); }
   }
 
-  function renderHistBtns(dates) {
+  function renderHistBtns(hasBackup, backupDate) {
     histBtns.innerHTML = '';
 
-    // Today button
     const todayBtn = document.createElement('button');
-    todayBtn.className = 'hist-btn today active';
+    todayBtn.className = 'hist-btn today' + (currentDate === null ? ' active' : '');
     todayBtn.textContent = '今日（即時）';
     todayBtn.addEventListener('click', () => switchToLive(todayBtn));
     histBtns.appendChild(todayBtn);
 
-    // Backup snapshot button (from localStorage)
-    const backupDate = localStorage.getItem('rack_backup_date');
-    if (backupDate && dates.includes(backupDate)) {
-      const bBtn = document.createElement('button');
-      bBtn.className = 'hist-btn backup-snap';
-      bBtn.textContent = `📋 備份 ${backupDate}`;
-      bBtn.dataset.date = backupDate;
-      bBtn.addEventListener('click', () => switchToHistory(backupDate, bBtn));
-      histBtns.appendChild(bBtn);
+    if (hasBackup) {
+      const yBtn = document.createElement('button');
+      yBtn.className = 'hist-btn backup-snap' + (currentDate === 'excel' ? ' active' : '');
+      yBtn.textContent = '📋 昨日資料' + (backupDate ? ` (${backupDate})` : '');
+      yBtn.addEventListener('click', () => switchToYesterday(yBtn));
+      histBtns.appendChild(yBtn);
     }
-
-    // Past dates (skip current trading day and backup date to avoid duplicate)
-    dates.filter(d => d !== currentTradingDate && d !== backupDate).forEach(date => {
-      const btn = document.createElement('button');
-      btn.className = 'hist-btn';
-      btn.textContent = date;
-      btn.dataset.date = date;
-      btn.addEventListener('click', () => switchToHistory(date, btn));
-      histBtns.appendChild(btn);
-    });
   }
 
   function switchToLive(activeBtn) {
@@ -1081,24 +1067,22 @@
     fetchStocks();
   }
 
-  async function switchToHistory(date, activeBtn) {
-    currentDate = date;
-    histViewing.textContent = `📅 查看 ${date} 歷史資料`;
+  async function switchToYesterday(activeBtn) {
+    currentDate = 'excel';
+    histViewing.textContent = '📅 查看昨日備份資料';
     document.querySelectorAll('.hist-btn').forEach(b => b.classList.remove('active'));
     activeBtn.classList.add('active');
-
-    // Pause live refresh
     isPaused = true;
     btnToggle.textContent = '▶ 繼續';
     btnToggle.className   = 'btn btn-resume';
 
-    setStatus('loading', `載入 ${date} 歷史資料…`);
+    setStatus('loading', '載入昨日備份資料…');
     try {
-      const res  = await fetch(`/api/history?date=${date}`);
+      const res  = await fetch('/api/history-excel');
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
       allData = json.data;
-      lastUpdated.textContent = date + ' 歷史快照';
+      lastUpdated.textContent = (json.date || '昨日') + ' 備份資料';
       renderTable();
       renderIndustryPanel();
       setStatus('');
@@ -1392,7 +1376,7 @@
   // ── Init ──
   fetchStocks();
   startTicker();
-  loadHistoryDates();
+  loadBackupStatus();
 </script>
 </body>
 </html>
