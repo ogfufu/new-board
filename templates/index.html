@@ -319,6 +319,29 @@
     .ind-tooltip td:nth-child(2) { color: var(--text); }
     .ind-tooltip td:nth-child(3) { text-align: right; font-weight: 600; min-width: 52px; }
 
+    /* K-bar hover tooltip */
+    #kbar-tooltip {
+      display: none;
+      position: fixed;
+      z-index: 9998;
+      background: #1c2128;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 12px;
+      color: var(--text);
+      pointer-events: none;
+      min-width: 170px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    }
+    #kbar-tooltip.visible { display: block; }
+    .kt-code  { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+    .kt-row   { display: flex; justify-content: space-between; gap: 14px;
+                padding: 2px 0; border-bottom: 1px solid #21262d; }
+    .kt-row:last-child { border-bottom: none; }
+    .kt-label { color: var(--muted); }
+    .kt-val   { font-weight: 600; }
+
     footer {
       text-align: center; padding: 10px; color: var(--muted);
       font-size: 11px; border-top: 1px solid var(--border); flex-shrink: 0;
@@ -585,6 +608,9 @@
   <div class="sectors-grid" id="sectors-grid"></div>
 </div>
 
+<!-- K-bar hover tooltip -->
+<div id="kbar-tooltip"></div>
+
 <!-- Industry tooltip -->
 <div class="ind-tooltip" id="ind-tooltip">
   <div class="tt-title" id="tt-title">—</div>
@@ -596,6 +622,7 @@
 <script>
   // ── State ──
   let allData          = [];
+  let overviewRows     = [];   // rows currently shown in overview chart (for tooltip)
   let prevRanks        = {};
   let prevHistCodes    = new Set(); // codes from last historical snapshot (for crown)
   let currentTradingDate = null;   // last trading day returned by server
@@ -774,6 +801,11 @@
       parts.push(`<line x1="${cx}" y1="${bBot.toFixed(1)}" x2="${cx}" y2="${yL.toFixed(1)}" stroke="${color}" stroke-width="1.5"/>`);
     });
 
+    // Transparent hover rects (on top of everything)
+    rows.forEach((r, i) => {
+      parts.push(`<rect data-idx="${i}" x="${padL + i * colW}" y="0" width="${colW}" height="${chartH}" fill="transparent" style="cursor:crosshair"/>`);
+    });
+
     return `<svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`;
   }
 
@@ -782,10 +814,55 @@
     rows = applyCondFilters(rows);
     rows.sort((a, b) => (b['漲跌幅'] ?? 0) - (a['漲跌幅'] ?? 0));
     document.getElementById('overview-count').textContent = rows.length ? ` ${rows.length} 筆` : '';
+    overviewRows = rows;
     const wrap = document.getElementById('overview-svg-wrap');
-    const containerW = document.getElementById('overview-wrap').clientWidth - 36; // subtract padding
+    const containerW = document.getElementById('overview-wrap').clientWidth - 36;
     wrap.innerHTML = rows.length ? buildOverviewSVG(rows, containerW) : '';
+
+    // Attach hover events via delegation on the SVG
+    const svg = wrap.querySelector('svg');
+    if (svg) {
+      svg.addEventListener('mousemove', e => {
+        const target = e.target.closest ? e.target.closest('[data-idx]') : null;
+        if (!target) { hideKbarTip(); return; }
+        const r = overviewRows[parseInt(target.dataset.idx)];
+        if (r) showKbarTip(e, r);
+      });
+      svg.addEventListener('mouseleave', hideKbarTip);
+    }
   }
+
+  // ── Overview K-bar tooltip ──
+  const kbarTip = document.getElementById('kbar-tooltip');
+
+  function showKbarTip(e, r) {
+    const chg  = r['漲跌幅'] ?? 0;
+    const cls  = chg > 0 ? 'pos' : chg < 0 ? 'neg' : 'zero';
+    const sign = chg > 0 ? '+' : '';
+    const fmt  = v => v != null ? v.toFixed(2) + '%' : '—';
+    const fmtN = v => v != null ? v.toFixed(1) : '—';
+    kbarTip.innerHTML =
+      `<div class="kt-code">${r['代號']} ${r['名稱'] || ''}</div>` +
+      `<div class="kt-row"><span class="kt-label">漲跌幅</span><span class="kt-val ${cls}">${sign}${chg.toFixed(2)}%</span></div>` +
+      `<div class="kt-row"><span class="kt-label">投信</span><span class="kt-val">${r['投信'] ?? '—'}</span></div>` +
+      `<div class="kt-row"><span class="kt-label">月YOY</span><span class="kt-val">${fmt(r['月(YOY)'])}</span></div>` +
+      `<div class="kt-row"><span class="kt-label">月-1YOY</span><span class="kt-val">${fmt(r['月-1(YOY)'])}</span></div>` +
+      `<div class="kt-row"><span class="kt-label">資金</span><span class="kt-val">${fmtN(r['資金(億)'])}億</span></div>` +
+      `<div class="kt-row"><span class="kt-label">產業</span><span class="kt-val">${r['產業類型'] || '—'}</span></div>`;
+    kbarTip.classList.add('visible');
+    moveKbarTip(e);
+  }
+
+  function moveKbarTip(e) {
+    const pad = 14, W = kbarTip.offsetWidth || 180, H = kbarTip.offsetHeight || 160;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    if (x + W > window.innerWidth  - 8) x = e.clientX - W - pad;
+    if (y + H > window.innerHeight - 8) y = e.clientY - H - pad;
+    kbarTip.style.left = x + 'px';
+    kbarTip.style.top  = y + 'px';
+  }
+
+  function hideKbarTip() { kbarTip.classList.remove('visible'); }
 
   // ── Render table ──
   function renderTable() {
