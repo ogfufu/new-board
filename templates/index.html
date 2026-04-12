@@ -1078,7 +1078,7 @@
 
     setStatus('loading', '載入昨日備份資料…');
     try {
-      const res  = await fetch('/api/history-excel');
+      const res  = await fetch('/api/history-backup');
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
       allData = json.data;
@@ -1109,8 +1109,30 @@
     { name: '類股二', stocks: ['', '', '', '', ''] },
   ];
 
+  let _sectorsSaveTimer = null;
   function saveSectors() {
     localStorage.setItem('rack_sectors', JSON.stringify(sectors));
+    // Debounce server save (800ms after last change)
+    clearTimeout(_sectorsSaveTimer);
+    _sectorsSaveTimer = setTimeout(() => {
+      fetch('/api/sectors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sectors })
+      }).catch(() => {});
+    }, 800);
+  }
+
+  async function loadSectors() {
+    try {
+      const res  = await fetch('/api/sectors');
+      const json = await res.json();
+      if (json.success && json.sectors && json.sectors.length > 0) {
+        sectors = json.sectors;
+        localStorage.setItem('rack_sectors', JSON.stringify(sectors));
+      }
+    } catch {}
+    renderSectorsGrid();
   }
 
   // Variable-N K-bar SVG (works for both fixed-5 and watchlist cards)
@@ -1369,14 +1391,13 @@
     renderSectorsGrid();
   });
 
-  renderSectorsGrid();
-
   window.addEventListener('resize', renderOverviewChart);
 
   // ── Init ──
   fetchStocks();
   startTicker();
   loadBackupStatus();
+  loadSectors();   // fetches sector configs from server DB (falls back to localStorage)
 </script>
 </body>
 </html>

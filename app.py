@@ -1,5 +1,6 @@
 import os
 import io
+import json
 import sqlite3
 import threading
 from datetime import datetime, date, timedelta
@@ -53,6 +54,21 @@ def init_db():
             rank  INTEGER
         )
     ''')
+    # Backup metadata: records which date was last manually backed up
+    con.execute('''
+        CREATE TABLE IF NOT EXISTS backup_meta (
+            id      INTEGER PRIMARY KEY CHECK (id = 1),
+            date    TEXT,
+            created TEXT
+        )
+    ''')
+    # Sector card configurations (JSON blob, singleton row)
+    con.execute('''
+        CREATE TABLE IF NOT EXISTS sector_configs (
+            id   INTEGER PRIMARY KEY CHECK (id = 1),
+            data TEXT NOT NULL
+        )
+    ''')
     con.commit()
     con.close()
 
@@ -73,6 +89,35 @@ def get_crown_ref():
     rows = con.execute('SELECT code FROM crown_ref').fetchall()
     con.close()
     return [r[0] for r in rows]
+
+
+def save_backup_meta(date_str):
+    con = sqlite3.connect(DB_PATH)
+    con.execute('INSERT OR REPLACE INTO backup_meta VALUES (1, ?, ?)',
+                (date_str, datetime.now().isoformat()))
+    con.commit()
+    con.close()
+
+
+def get_backup_meta():
+    con = sqlite3.connect(DB_PATH)
+    row = con.execute('SELECT date FROM backup_meta WHERE id=1').fetchone()
+    con.close()
+    return row[0] if row else None
+
+
+def save_sector_configs(data_json_str):
+    con = sqlite3.connect(DB_PATH)
+    con.execute('INSERT OR REPLACE INTO sector_configs VALUES (1, ?)', (data_json_str,))
+    con.commit()
+    con.close()
+
+
+def get_sector_configs():
+    con = sqlite3.connect(DB_PATH)
+    row = con.execute('SELECT data FROM sector_configs WHERE id=1').fetchone()
+    con.close()
+    return row[0] if row else None
 
 
 def last_trading_day():
@@ -255,7 +300,7 @@ def index():
 
 @app.route('/api/backup', methods=['POST'])
 def api_backup():
-    """Save current data to Excel file + update crown reference baseline."""
+    """Save current data to SQLite + Excel, update crown ref and backup metadata."""
     global _last_df
     if _last_df is None:
         try:
@@ -263,9 +308,14 @@ def api_backup():
         except Exception as e:
             return jsonify({'success': False, 'error': f'資料抓取失敗：{str(e)}'}), 500
     try:
-        save_crown_ref(_last_df)
-        _last_df.to_excel(BACKUP_XLSX, index=False, engine='openpyxl')
         target_date = last_trading_day()
+        save_crown_ref(_last_df)
+        save_snapshot(_last_df, target_date, overwrite=True)   # persist to SQLite
+        save_backup_meta(target_date)                          # record manual backup date
+        try:                                                   # also write Excel (best-effort)
+            _last_df.to_excel(BACKUP_XLSX, index=False, engine='openpyxl')
+        except Exception:
+            pass
         return jsonify({'success': True, 'date': target_date})
     except Exception as e:
         return jsonify({'success': False, 'error': f'儲存失敗：{str(e)}'}), 500
@@ -273,33 +323,52 @@ def api_backup():
 
 @app.route('/api/backup-status')
 def api_backup_status():
-    """Return whether a backup Excel file exists and when it was created."""
-    exists = os.path.exists(BACKUP_XLSX)
-    date_str = None
-    if exists:
-        mtime = os.path.getmtime(BACKUP_XLSX)
-        date_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
-    return jsonify({'exists': exists, 'date': date_str})
+    """Return whether a manual backup exists (reads from SQLite)."""
+    date_str = get_backup_meta()
+    return jsonify({'exists': date_str is not None, 'date': date_str})
 
 
-@app.route('/api/history-excel')
-def api_history_excel():
-    """Return the backed-up ranking from the Excel file."""
-    if not os.path.exists(BACKUP_XLSX):
+@app.route('/api/history-backup')
+def api_history_backup():
+    """Return the manually backed-up ranking (SQLite primary, Excel fallback)."""
+    date_str = get_backup_meta()
+    if not date_str:
         return jsonify({'success': False, 'error': '尚無備份資料'}), 404
-    try:
-        df = pd.read_excel(BACKUP_XLSX, engine='openpyxl')
-        df = df.where(pd.notnull(df), None)
-        if '代號' in df.columns:
-            df['代號'] = df['代號'].astype(str)
-        if '投信' in df.columns:
-            df['投信'] = pd.to_numeric(df['投信'], errors='coerce').fillna(0).round().astype(int)
-        records = df.to_dict(orient='records')
-        mtime = os.path.getmtime(BACKUP_XLSX)
-        date_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
+    records = get_snapshot(date_str)
+    if records:
         return jsonify({'success': True, 'data': records, 'date': date_str})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    # Fallback: read from Excel if SQLite row was pruned
+    if os.path.exists(BACKUP_XLSX):
+        try:
+            df = pd.read_excel(BACKUP_XLSX, engine='openpyxl')
+            df = df.where(pd.notnull(df), None)
+            if '代號' in df.columns:
+                df['代號'] = df['代號'].astype(str)
+            if '投信' in df.columns:
+                df['投信'] = pd.to_numeric(df['投信'], errors='coerce').fillna(0).round().astype(int)
+            return jsonify({'success': True, 'data': df.to_dict(orient='records'), 'date': date_str})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    return jsonify({'success': False, 'error': '查無備份資料'}), 404
+
+
+@app.route('/api/sectors', methods=['GET'])
+def api_get_sectors():
+    """Return saved sector card configurations."""
+    data = get_sector_configs()
+    if data:
+        return jsonify({'success': True, 'sectors': json.loads(data)})
+    return jsonify({'success': True, 'sectors': []})
+
+
+@app.route('/api/sectors', methods=['POST'])
+def api_save_sectors():
+    """Save sector card configurations."""
+    body = request.get_json()
+    if not body or 'sectors' not in body:
+        return jsonify({'success': False, 'error': 'invalid body'}), 400
+    save_sector_configs(json.dumps(body['sectors'], ensure_ascii=False))
+    return jsonify({'success': True})
 
 
 @app.route('/api/crown-ref')
