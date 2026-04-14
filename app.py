@@ -397,6 +397,8 @@ def run_stock_update():
     for _, row in df_codes.iterrows():
         code = row['代號']
         cap  = row['成交值(億)']
+        if isinstance(cap, float) and (cap != cap):  # NaN check
+            cap = None
         pi   = price_data.get(code)
         if pi is None:
             continue
@@ -527,7 +529,8 @@ def api_stocks():
         trading_date = last_trading_day()
         save_snapshot(df, trading_date)
 
-        records = df.where(pd.notnull(df), None).to_dict(orient='records')
+        # Use pandas to_json → json.loads to guarantee NaN → null (prevents invalid JSON)
+        records = json.loads(df.to_json(orient='records', force_ascii=False))
         return jsonify({
             'success': True,
             'data': records,
