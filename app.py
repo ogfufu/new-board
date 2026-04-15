@@ -493,15 +493,15 @@ def index():
 def api_save_compare():
     """Copy current ranking to 對照排行榜."""
     global _last_df
-    if _last_df is None:
-        try:
-            _last_df = run_stock_update()
-        except Exception as e:
-            return jsonify({'success': False, 'error': f'資料抓取失敗：{str(e)}'}), 500
+    try:
+        df = _last_df if _last_df is not None else run_stock_update()
+        _last_df = df
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'資料抓取失敗：{str(e)}'}), 500
     try:
         target_date = last_trading_day()
-        save_compare_snapshot(_last_df, target_date)
-        save_crown_ref(_last_df)
+        save_compare_snapshot(df, target_date)
+        save_crown_ref(df)
         return jsonify({'success': True, 'date': target_date})
     except Exception as e:
         return jsonify({'success': False, 'error': f'儲存失敗：{str(e)}'}), 500
