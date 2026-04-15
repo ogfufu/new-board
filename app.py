@@ -9,9 +9,67 @@ import urllib3
 import pandas as pd
 import requests
 import twstock
+import gspread
+from google.oauth2.service_account import Credentials
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from flask import Flask, jsonify, render_template, request
+
+# ---------- Google Sheets ----------
+GSHEET_ID    = '1lRu7XAzla5K4JnM6ZGR3dXOAA-XC8EBNWLXzt3COGvY'
+CREDS_FILE   = os.path.join(os.path.dirname(__file__), 'vital-form-493406-t6-809b6e596f6a.json')
+GSHEET_SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+
+def _get_gsheet():
+    creds = Credentials.from_service_account_file(CREDS_FILE, scopes=GSHEET_SCOPES)
+    gc = gspread.authorize(creds)
+    return gc.open_by_key(GSHEET_ID).sheet1
+
+GSHEET_COLS = ['排序','代號','名稱','市場','股價','漲跌幅','外資','投信',
+               '月(YOY)','月-1(YOY)','開盤','最高','最低','資金(億)','產業類型']
+
+def save_compare_to_gsheet(df, date_str):
+    """寫入 Google Sheet：第1列=日期，第2列=欄位名，第3列起=資料。"""
+    ws = _get_gsheet()
+    ws.clear()
+    # 第1列：日期
+    ws.update('A1', [[f'更新日期:{date_str}']])
+    # 第2列：欄位名稱
+    ws.update('A2', [GSHEET_COLS])
+    # 第3列起：資料
+    rows = []
+    for _, r in df.iterrows():
+        rows.append([str(r.get(c, '') or '') for c in GSHEET_COLS])
+    if rows:
+        ws.update(f'A3', rows)
+
+def get_compare_from_gsheet():
+    """從 Google Sheet 讀取對照排行榜，回傳 (records_list, date_str)。"""
+    try:
+        ws = _get_gsheet()
+        all_values = ws.get_all_values()
+        if len(all_values) < 3:
+            return [], None
+        date_str = all_values[0][0].replace('更新日期:', '').strip()
+        headers  = all_values[1]
+        records  = []
+        for row in all_values[2:]:
+            if any(row):
+                rec = {}
+                for h, v in zip(headers, row):
+                    # 數字欄位轉型
+                    if h in ('排序','外資','投信'):
+                        try: rec[h] = int(float(v)) if v != '' else None
+                        except: rec[h] = None
+                    elif h in ('股價','漲跌幅','月(YOY)','月-1(YOY)','開盤','最高','最低','資金(億)'):
+                        try: rec[h] = float(v) if v != '' else None
+                        except: rec[h] = None
+                    else:
+                        rec[h] = v
+                records.append(rec)
+        return records, date_str
+    except Exception as e:
+        return [], None
 
 app = Flask(__name__)
 
@@ -491,7 +549,7 @@ def index():
 
 @app.route('/api/compare', methods=['POST'])
 def api_save_compare():
-    """Copy current ranking to 對照排行榜."""
+    """Copy current ranking to 對照排行榜 (Google Sheets)."""
     global _last_df
     try:
         df = _last_df if _last_df is not None else run_stock_update()
@@ -500,7 +558,8 @@ def api_save_compare():
         return jsonify({'success': False, 'error': f'資料抓取失敗：{str(e)}'}), 500
     try:
         target_date = last_trading_day()
-        save_compare_snapshot(df, target_date)
+        save_compare_to_gsheet(df, target_date)  # 寫入 Google Sheets
+        save_compare_snapshot(df, target_date)   # 同時保留本機備份
         save_crown_ref(df)
         return jsonify({'success': True, 'date': target_date})
     except Exception as e:
@@ -509,20 +568,25 @@ def api_save_compare():
 
 @app.route('/api/compare', methods=['GET'])
 def api_get_compare():
-    """Return 對照排行榜 snapshot."""
-    date_str = get_compare_meta()
-    if not date_str:
-        return jsonify({'success': False, 'error': '尚無對照資料'}), 404
-    records = get_compare_snapshot()
-    if not records:
-        return jsonify({'success': False, 'error': '查無對照資料'}), 404
+    """Return 對照排行榜 snapshot (從 Google Sheets 讀取)."""
+    records, date_str = get_compare_from_gsheet()
+    if not date_str or not records:
+        # 若 Google Sheets 讀取失敗，退回本機備份
+        date_str = get_compare_meta()
+        if not date_str:
+            return jsonify({'success': False, 'error': '尚無對照資料'}), 404
+        records = get_compare_snapshot()
+        if not records:
+            return jsonify({'success': False, 'error': '查無對照資料'}), 404
     return jsonify({'success': True, 'data': records, 'date': date_str})
 
 
 @app.route('/api/compare-status')
 def api_compare_status():
-    """Return whether a compare snapshot exists."""
-    date_str = get_compare_meta()
+    """Return whether a compare snapshot exists (檢查 Google Sheets)."""
+    _, date_str = get_compare_from_gsheet()
+    if not date_str:
+        date_str = get_compare_meta()  # 退回本機備份
     return jsonify({'exists': date_str is not None, 'date': date_str})
 
 
@@ -547,8 +611,13 @@ def api_save_sectors():
 
 @app.route('/api/crown-ref')
 def api_crown_ref():
-    """Return the set of codes stored as crown reference."""
-    codes = get_crown_ref()
+    """Return codes from Google Sheets compare snapshot (for 👑 comparison)."""
+    records, date_str = get_compare_from_gsheet()
+    if records:
+        codes = [str(r.get('代號', '')) for r in records if r.get('代號')]
+    else:
+        # 退回本機 SQLite 備份
+        codes = get_crown_ref()
     return jsonify({'success': True, 'codes': codes})
 
 
