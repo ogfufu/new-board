@@ -5,9 +5,12 @@ import sqlite3
 import threading
 from datetime import datetime, date, timedelta
 
+import urllib3
 import pandas as pd
 import requests
 import twstock
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
@@ -371,7 +374,7 @@ def get_twse_realtime(codes_markets):
             f'?ex_ch={ex_ch}&json=1&delay=0'
         )
         try:
-            resp = requests.get(url, headers=TWSE_HDR, timeout=20)
+            resp = requests.get(url, headers=TWSE_HDR, timeout=20, verify=False)
             resp.raise_for_status()
             data = resp.json()
             for item in data.get('msgArray', []):
@@ -392,8 +395,8 @@ def get_twse_realtime(codes_markets):
                     'high':       _parse_num(item.get('h')),
                     'low':        _parse_num(item.get('l')),
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            print(f'[TWSE ERROR] batch {i}: {e}', flush=True)
 
     return result
 
