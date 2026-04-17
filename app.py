@@ -16,12 +16,23 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from flask import Flask, jsonify, render_template, request
 
 # ---------- Google Sheets ----------
-GSHEET_ID    = '1lRu7XAzla5K4JnM6ZGR3dXOAA-XC8EBNWLXzt3COGvY'
-CREDS_FILE   = os.path.join(os.path.dirname(__file__), 'vital-form-493406-t6-809b6e596f6a.json')
+GSHEET_ID     = '1lRu7XAzla5K4JnM6ZGR3dXOAA-XC8EBNWLXzt3COGvY'
 GSHEET_SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
+# 優先用環境變數（Railway 部署用），本機開發則 fallback 到 JSON 檔案
+_CREDS_FILE = os.path.join(os.path.dirname(__file__), 'vital-form-493406-t6-809b6e596f6a.json')
+
 def _get_gsheet():
-    creds = Credentials.from_service_account_file(CREDS_FILE, scopes=GSHEET_SCOPES)
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
+    if creds_json:
+        # Railway：從環境變數讀取 JSON 字串
+        info = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(info, scopes=GSHEET_SCOPES)
+    elif os.path.exists(_CREDS_FILE):
+        # 本機開發：從 JSON 檔案讀取
+        creds = Credentials.from_service_account_file(_CREDS_FILE, scopes=GSHEET_SCOPES)
+    else:
+        raise RuntimeError('找不到 Google 憑證：請設定環境變數 GOOGLE_CREDENTIALS_JSON')
     gc = gspread.authorize(creds)
     return gc.open_by_key(GSHEET_ID).sheet1
 
