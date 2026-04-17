@@ -606,6 +606,17 @@ def api_get_compare():
     return jsonify({'success': True, 'data': records, 'date': date_str})
 
 
+@app.route('/api/gsheet-test')
+def api_gsheet_test():
+    """診斷用：測試 Google Sheets 連線是否正常。"""
+    try:
+        ws = _get_gsheet()
+        title = ws.spreadsheet.title
+        return jsonify({'success': True, 'sheet_title': title})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/compare-status')
 def api_compare_status():
     """Return whether a compare snapshot exists (檢查 Google Sheets)."""
