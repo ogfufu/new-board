@@ -525,8 +525,8 @@
   <div class="countdown">下次刷新：<span id="countdown-val">—</span> 秒</div>
   <div class="spacer"></div>
   <button class="btn btn-watch"   id="btn-watch"   title="將篩選結果加入類股K棒觀察">👁 列入觀察</button>
-  <button class="btn btn-compare" id="btn-compare" title="將當前成交值排行榜複製到對照排行榜">📋 複製到對照排行榜</button>
-  <button class="btn btn-gsheet" id="btn-read-gsheet" title="從 Google Sheets 讀取對照排行榜">📊 讀取對照排行榜</button>
+  <button class="btn btn-compare" id="btn-compare" title="將當前成交值排行榜寫入 Google Sheets">📋 複製到對照排行榜</button>
+  <button class="btn btn-gsheet" id="btn-read-gsheet" title="從 Google Sheets 抓取對照排行榜">📥 抓取對照排行榜</button>
   <div class="row-count">顯示 <span id="row-count">0</span> 筆</div>
 </div>
 
@@ -685,6 +685,7 @@
 <script>
   // ── State ──
   let allData          = [];
+  let compareData      = [];   // 對照排行榜資料（從 Google Sheets 抓取）
   let overviewRows     = [];   // rows currently shown in overview chart (for tooltip)
   let prevRanks        = {};
   let prevHistCodes    = new Set(); // codes from last historical snapshot (for crown)
@@ -1408,31 +1409,27 @@
     setTimeout(() => { btn.textContent = '📋 複製到對照排行榜'; btn.disabled = false; }, 2500);
   });
 
-  // ── 讀取對照排行榜 button（從 Google Sheets）──
+  // ── 抓取對照排行榜 button（從 Google Sheets 存到 compareData，不影響即時畫面）──
   document.getElementById('btn-read-gsheet').addEventListener('click', async () => {
     const btn = document.getElementById('btn-read-gsheet');
     btn.disabled = true;
-    btn.textContent = '⏳ 讀取中…';
+    btn.textContent = '⏳ 抓取中…';
     try {
       const res  = await fetch('/api/compare');
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
-      allData = json.data;
-      currentDate = 'compare';
-      isPaused = true;
-      document.getElementById('btn-toggle').textContent = '▶ 繼續';
-      document.getElementById('btn-toggle').className   = 'btn btn-resume';
-      document.getElementById('hist-viewing').textContent = '📊 查看對照排行榜';
-      document.getElementById('last-updated').textContent = (json.date || '') + ' 對照排行榜 (Google Sheets)';
-      renderTable();
-      renderIndustryPanel();
+      // 存到 compareData（不影響即時 allData）
+      compareData = json.data;
+      prevHistCodes = new Set(compareData.map(r => String(r['代號'])));
+      renderTable();          // 重繪讓 👑 crown icon 更新
+      loadCompareStatus();    // 更新 histbar 日期顯示
       setStatus('');
-      btn.textContent = '✔ 已讀取';
-      setTimeout(() => { btn.textContent = '📊 讀取對照排行榜'; btn.disabled = false; }, 2000);
+      btn.textContent = `✔ 已抓取 (${json.date || ''})`;
+      setTimeout(() => { btn.textContent = '📥 抓取對照排行榜'; btn.disabled = false; }, 2500);
     } catch (e) {
-      setStatus('error', '❌ 讀取失敗：' + e.message);
-      btn.textContent = '❌ 讀取失敗';
-      setTimeout(() => { btn.textContent = '📊 讀取對照排行榜'; btn.disabled = false; }, 2500);
+      setStatus('error', '❌ 抓取失敗：' + e.message);
+      btn.textContent = '❌ 抓取失敗';
+      setTimeout(() => { btn.textContent = '📥 抓取對照排行榜'; btn.disabled = false; }, 2500);
     }
   });
 
