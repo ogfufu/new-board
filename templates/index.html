@@ -1085,7 +1085,7 @@
         const val = r[col];
 
         if (col === '排序') {
-          return `<td class="td-rank"><div class="rank-cell"><span class="rank-num">${val ?? '—'}</span>${rankBadge(r['代號'], val)}</div></td>`;
+          return `<td class="td-rank">${val ?? '—'}</td>`;
         }
         if (col === '代號') {
           const crown = (prevHistCodes.size > 0 && !prevHistCodes.has(String(val))) ? '<span class="crown">👑</span>' : '';
