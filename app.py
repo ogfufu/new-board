@@ -632,6 +632,63 @@ def api_crown_ref():
     return jsonify({'success': True, 'codes': codes})
 
 
+@app.route('/api/limit-up')
+def api_limit_up():
+    """漲停股列表：從 HiStock 抓全部股票，過濾漲跌幅>9%，合併 Wespai 外資/投信/產業。"""
+    try:
+        # 1. 抓全部股票
+        url = 'https://histock.tw/stock/rank.aspx?m=1&p=all'
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        df_all = pd.read_html(io.StringIO(r.text))[0]
+        df_all.columns = df_all.columns.str.replace('▼', '', regex=False)
+        df_all = df_all.iloc[:, [0, 1, 2, 4, 12]].copy()
+        df_all.columns = ['代號', '名稱', '股價', '漲跌幅%', '成交值(億)']
+        df_all['代號'] = df_all['代號'].astype(str)
+        df_all['股價'] = pd.to_numeric(df_all['股價'], errors='coerce')
+        df_all['漲跌幅%'] = (df_all['漲跌幅%'].astype(str)
+                             .str.replace('%', '', regex=False)
+                             .str.replace('+', '', regex=False)
+                             .str.strip()
+                             .pipe(pd.to_numeric, errors='coerce'))
+        df_all['成交值(億)'] = pd.to_numeric(df_all['成交值(億)'], errors='coerce')
+
+        # 2. 過濾漲跌幅 > 9%
+        df_limit = df_all[df_all['漲跌幅%'] > 9].copy().reset_index(drop=True)
+
+        # 3. 合併 Wespai 外資/投信/產業
+        df_wes = get_wespai_data()
+        wes_idx = df_wes.set_index('代號')
+
+        rows = []
+        for _, row in df_limit.iterrows():
+            code = row['代號']
+            trust = 0; foreign = 0; industry = ''
+            if code in wes_idx.index:
+                w = wes_idx.loc[code]
+                if isinstance(w, pd.DataFrame): w = w.iloc[0]
+                t = pd.to_numeric(w.get('投信買賣超'), errors='coerce')
+                trust = int(round(t)) if pd.notna(t) else 0
+                f = pd.to_numeric(w.get('外資買賣超'), errors='coerce')
+                foreign = int(round(f)) if pd.notna(f) else 0
+                industry = str(w.get('產業類型', '') or '')
+            rows.append({
+                '代號':     code,
+                '名稱':     row['名稱'],
+                '股價':     row['股價'],
+                '漲跌幅':   row['漲跌幅%'],
+                '外資':     foreign,
+                '投信':     trust,
+                '資金(億)': row['成交值(億)'],
+                '產業類型': industry,
+            })
+
+        records = json.loads(pd.DataFrame(rows).to_json(orient='records', force_ascii=False))
+        return jsonify({'success': True, 'data': records, 'count': len(records)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/stocks')
 def api_stocks():
     global _last_df

@@ -86,6 +86,21 @@
     .btn-refresh { background: var(--accent); color: #fff; }
     .btn-backup  { background: #6e40c9; color: #fff; }
     .btn-compare { background: #6e40c9; color: #fff; }
+    .btn-gsheet  { background: #1a7f37; color: #fff; }
+
+    /* Side panel tabs */
+    .side-tabbar { display:flex; border-bottom:1px solid var(--border); margin-bottom:8px; }
+    .side-tab { flex:1; padding:5px 4px; font-size:12px; font-weight:600; background:none;
+                border:none; border-bottom:2px solid transparent; color:var(--muted);
+                cursor:pointer; transition:color .15s; }
+    .side-tab:hover { color:var(--text); }
+    .side-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+    .side-pane { display:none; flex:1; flex-direction:column; overflow:hidden; }
+    .side-pane.active { display:flex; }
+
+    /* Limitup table rows */
+    #limitup-table td { padding:3px 3px; border-bottom:1px solid var(--border); vertical-align:middle; }
+    #limitup-table tr:hover td { background:var(--hover); }
 
     .countdown { font-size: 12px; color: var(--muted); white-space: nowrap; }
     .countdown span { color: var(--text); font-weight: 600; }
@@ -508,6 +523,7 @@
   <div class="spacer"></div>
   <button class="btn btn-watch"   id="btn-watch"   title="將篩選結果加入類股K棒觀察">👁 列入觀察</button>
   <button class="btn btn-compare" id="btn-compare" title="將當前成交值排行榜複製到對照排行榜">📋 複製到對照排行榜</button>
+  <button class="btn btn-gsheet" id="btn-read-gsheet" title="從 Google Sheets 讀取對照排行榜">📊 讀取對照排行榜</button>
   <div class="row-count">顯示 <span id="row-count">0</span> 筆</div>
 </div>
 
@@ -520,6 +536,9 @@
   </label>
   <label class="f-item" id="fl-ituf">
     <input type="checkbox" id="f-ituf-en"> 投信 ≥ 0
+  </label>
+  <label class="f-item" id="fl-foreign">
+    <input type="checkbox" id="f-foreign-en"> 外資 ≥ 0
   </label>
   <label class="f-item" id="fl-yoy">
     <input type="checkbox" id="f-yoy-en"> 月(YOY) ≥
@@ -589,12 +608,40 @@
 
   <!-- Side panel -->
   <div class="side-panel">
-    <div class="panel-title">金流產業分析</div>
-    <div class="panel-sub">依資金(億)統計，漲跌幅方向分流</div>
-    <div class="section-label in">▲ 資金流入前5大產業</div>
-    <div id="inflow-list"><div class="panel-empty">—</div></div>
-    <div class="section-label out">▼ 資金流出前5大產業</div>
-    <div id="outflow-list"><div class="panel-empty">—</div></div>
+    <div class="side-tabbar">
+      <button class="side-tab active" data-side="inflow">金流分析</button>
+      <button class="side-tab" data-side="limitup">漲停股 <span id="limitup-count"></span></button>
+    </div>
+
+    <!-- 金流分析 -->
+    <div id="side-inflow" class="side-pane active">
+      <div class="panel-sub">依資金(億)統計，漲跌幅方向分流</div>
+      <div class="section-label in">▲ 資金流入前5大產業</div>
+      <div id="inflow-list"><div class="panel-empty">—</div></div>
+      <div class="section-label out">▼ 資金流出前5大產業</div>
+      <div id="outflow-list"><div class="panel-empty">—</div></div>
+    </div>
+
+    <!-- 漲停股列表 -->
+    <div id="side-limitup" class="side-pane" style="display:none;flex-direction:column;overflow:hidden;">
+      <div class="panel-sub" style="margin-bottom:6px;">漲跌幅 &gt; 9%，資料來源：HiStock</div>
+      <div style="overflow:auto;flex:1;">
+        <table id="limitup-table" style="width:100%;border-collapse:collapse;font-size:11px;">
+          <thead>
+            <tr style="position:sticky;top:0;background:var(--bg);z-index:1;">
+              <th style="padding:4px 3px;text-align:left;color:var(--muted);">K棒</th>
+              <th style="padding:4px 3px;text-align:left;color:var(--muted);">代號</th>
+              <th style="padding:4px 3px;text-align:left;color:var(--muted);">名稱</th>
+              <th style="padding:4px 3px;text-align:right;color:var(--muted);">外資</th>
+              <th style="padding:4px 3px;text-align:right;color:var(--muted);">投信</th>
+              <th style="padding:4px 3px;text-align:right;color:var(--muted);">資金</th>
+              <th style="padding:4px 3px;text-align:left;color:var(--muted);">產業</th>
+            </tr>
+          </thead>
+          <tbody id="limitup-body"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">點擊「漲停股」分頁載入</td></tr></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -743,6 +790,7 @@
   const fChangeEn  = document.getElementById('f-change-en');
   const fChangeVal = document.getElementById('f-change-val');
   const fItufEn    = document.getElementById('f-ituf-en');
+  const fForeignEn = document.getElementById('f-foreign-en');
   const fYoyEn     = document.getElementById('f-yoy-en');
   const fYoyVal    = document.getElementById('f-yoy-val');
   const fYoy1En    = document.getElementById('f-yoy1-en');
@@ -831,7 +879,8 @@
       const t = parseFloat(fChangeVal.value);
       if (!isNaN(t)) rows = rows.filter(r => (r['漲跌幅'] ?? 0) > t);
     }
-    if (fItufEn.checked) rows = rows.filter(r => (r['投信'] ?? 0) >= 0);
+    if (fItufEn.checked)   rows = rows.filter(r => (r['投信'] ?? 0) >= 0);
+    if (fForeignEn.checked) rows = rows.filter(r => (r['外資'] ?? 0) >= 0);
     if (fYoyEn.checked && fYoyVal.value !== '') {
       const t = parseFloat(fYoyVal.value);
       if (!isNaN(t)) rows = rows.filter(r => (r['月(YOY)'] ?? 0) >= t);
@@ -1102,6 +1151,59 @@
     });
   }
 
+  // ── Side panel tabs ──
+  document.querySelectorAll('.side-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.side-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.side-pane').forEach(p => { p.classList.remove('active'); p.style.display='none'; });
+      tab.classList.add('active');
+      const pane = document.getElementById('side-' + tab.dataset.side);
+      pane.classList.add('active');
+      pane.style.display = 'flex';
+      if (tab.dataset.side === 'limitup') loadLimitUp();
+    });
+  });
+
+  // ── 漲停股列表 ──
+  let limitUpLoaded = false;
+  async function loadLimitUp() {
+    if (limitUpLoaded) return;
+    const tbody = document.getElementById('limitup-body');
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">載入中…</td></tr>';
+    try {
+      const res  = await fetch('/api/limit-up');
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      const data = json.data;
+      document.getElementById('limitup-count').textContent = `(${data.length})`;
+      if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">目前無漲停股</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.map(r => {
+        const chg = r['漲跌幅'] ?? 0;
+        const isUp = chg >= 0;
+        const color = isUp ? 'var(--green)' : 'var(--red)';
+        const kbar = kbarSVG(r['開盤'] ?? r['股價'], r['股價'], r['股價'], r['股價']);
+        const foreign = r['外資'] != null ? (r['外資'] > 0 ? `<span style="color:var(--green)">+${r['外資']}</span>` : `<span style="color:var(--red)">${r['外資']}</span>`) : '—';
+        const trust  = r['投信']  != null ? (r['投信']  > 0 ? `<span style="color:var(--green)">+${r['投信']}</span>`  : `<span style="color:var(--red)">${r['投信']}</span>`)  : '—';
+        const cap = r['資金(億)'] != null ? r['資金(億)'].toFixed(2) : '—';
+        return `<tr>
+          <td>${kbar}</td>
+          <td style="color:${color};font-weight:600;">${r['代號']}</td>
+          <td>${r['名稱']}</td>
+          <td style="text-align:right;">${foreign}</td>
+          <td style="text-align:right;">${trust}</td>
+          <td style="text-align:right;">${cap}</td>
+          <td style="color:var(--muted);font-size:10px;">${r['產業類型'] || '—'}</td>
+        </tr>`;
+      }).join('');
+      limitUpLoaded = true;
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red);padding:16px;">❌ ${e.message}</td></tr>`;
+    }
+  }
+
   // ── Sorting ──
   document.querySelectorAll('thead th[data-col]').forEach(th => {
     th.addEventListener('click', () => {
@@ -1215,6 +1317,34 @@
     setTimeout(() => { btn.textContent = '📋 複製到對照排行榜'; btn.disabled = false; }, 2500);
   });
 
+  // ── 讀取對照排行榜 button（從 Google Sheets）──
+  document.getElementById('btn-read-gsheet').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-read-gsheet');
+    btn.disabled = true;
+    btn.textContent = '⏳ 讀取中…';
+    try {
+      const res  = await fetch('/api/compare');
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      allData = json.data;
+      currentDate = 'compare';
+      isPaused = true;
+      document.getElementById('btn-toggle').textContent = '▶ 繼續';
+      document.getElementById('btn-toggle').className   = 'btn btn-resume';
+      document.getElementById('hist-viewing').textContent = '📊 查看對照排行榜';
+      document.getElementById('last-updated').textContent = (json.date || '') + ' 對照排行榜 (Google Sheets)';
+      renderTable();
+      renderIndustryPanel();
+      setStatus('');
+      btn.textContent = '✔ 已讀取';
+      setTimeout(() => { btn.textContent = '📊 讀取對照排行榜'; btn.disabled = false; }, 2000);
+    } catch (e) {
+      setStatus('error', '❌ 讀取失敗：' + e.message);
+      btn.textContent = '❌ 讀取失敗';
+      setTimeout(() => { btn.textContent = '📊 讀取對照排行榜'; btn.disabled = false; }, 2500);
+    }
+  });
+
   // ── Histbar: 今日（即時）+ 對照排行榜 ──
   const histBtns    = document.getElementById('hist-btns');
   const histViewing = document.getElementById('hist-viewing');
@@ -1243,6 +1373,20 @@
       cBtn.textContent = '📋 對照排行榜' + (compareDate ? ` (${compareDate})` : '');
       cBtn.addEventListener('click', () => switchToCompare(cBtn));
       histBtns.appendChild(cBtn);
+
+      // 🔄 重新讀取按鈕（從 Google Sheets 即時重新載入）
+      const rBtn = document.createElement('button');
+      rBtn.className = 'hist-btn';
+      rBtn.title = '從 Google Sheets 重新讀取對照排行榜';
+      rBtn.textContent = '🔄';
+      rBtn.addEventListener('click', async () => {
+        rBtn.disabled = true;
+        rBtn.textContent = '⏳';
+        await switchToCompare(cBtn);
+        rBtn.disabled = false;
+        rBtn.textContent = '🔄';
+      });
+      histBtns.appendChild(rBtn);
     }
   }
 
