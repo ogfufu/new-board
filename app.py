@@ -361,8 +361,12 @@ _wespai_lock = threading.Lock()
 
 def get_wespai_data():
     with _wespai_lock:
-        today = datetime.now().strftime('%Y-%m-%d')
-        if _wespai_cache['data'] is not None and _wespai_cache['date'] == today:
+        now = datetime.now()
+        # Wespai 每晚 20:00 更新，cache key 區分 20:00 前後
+        # 20:00 前：用 {date}_pre，20:00 後：用 {date}_post（觸發重抓）
+        slot = 'post' if now.hour >= 20 else 'pre'
+        cache_key = now.strftime('%Y-%m-%d') + '_' + slot
+        if _wespai_cache['data'] is not None and _wespai_cache['date'] == cache_key:
             return _wespai_cache['data']
 
         url = 'https://stock.wespai.com/p/75789'
@@ -379,7 +383,7 @@ def get_wespai_data():
         df['代號'] = df['代號'].astype(str)
 
         _wespai_cache['data'] = df
-        _wespai_cache['date'] = today
+        _wespai_cache['date'] = cache_key
         return df
 
 
