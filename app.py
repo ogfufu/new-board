@@ -642,16 +642,17 @@ def api_limit_up():
         r.raise_for_status()
         df_all = pd.read_html(io.StringIO(r.text))[0]
         df_all.columns = df_all.columns.str.replace('▼', '', regex=False)
-        df_all = df_all.iloc[:, [0, 1, 2, 4, 12]].copy()
-        df_all.columns = ['代號', '名稱', '股價', '漲跌幅%', '成交值(億)']
+        # col[0]=代號,col[1]=名稱,col[2]=股價,col[4]=漲跌%,col[7]=開盤,col[8]=最高,col[9]=最低,col[12]=成交值
+        df_all = df_all.iloc[:, [0, 1, 2, 4, 7, 8, 9, 12]].copy()
+        df_all.columns = ['代號', '名稱', '股價', '漲跌幅%', '開盤', '最高', '最低', '成交值(億)']
         df_all['代號'] = df_all['代號'].astype(str)
-        df_all['股價'] = pd.to_numeric(df_all['股價'], errors='coerce')
+        for col in ['股價', '開盤', '最高', '最低', '成交值(億)']:
+            df_all[col] = pd.to_numeric(df_all[col], errors='coerce')
         df_all['漲跌幅%'] = (df_all['漲跌幅%'].astype(str)
                              .str.replace('%', '', regex=False)
                              .str.replace('+', '', regex=False)
                              .str.strip()
                              .pipe(pd.to_numeric, errors='coerce'))
-        df_all['成交值(億)'] = pd.to_numeric(df_all['成交值(億)'], errors='coerce')
 
         # 2. 過濾漲跌幅 > 9%
         df_limit = df_all[df_all['漲跌幅%'] > 9].copy().reset_index(drop=True)
@@ -677,6 +678,9 @@ def api_limit_up():
                 '名稱':     row['名稱'],
                 '股價':     row['股價'],
                 '漲跌幅':   row['漲跌幅%'],
+                '開盤':     row['開盤'],
+                '最高':     row['最高'],
+                '最低':     row['最低'],
                 '外資':     foreign,
                 '投信':     trust,
                 '資金(億)': row['成交值(億)'],

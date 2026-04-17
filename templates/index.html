@@ -632,13 +632,15 @@
               <th style="padding:4px 3px;text-align:left;color:var(--muted);">K棒</th>
               <th style="padding:4px 3px;text-align:left;color:var(--muted);">代號</th>
               <th style="padding:4px 3px;text-align:left;color:var(--muted);">名稱</th>
+              <th style="padding:4px 3px;text-align:right;color:var(--muted);">股價</th>
+              <th style="padding:4px 3px;text-align:right;color:var(--muted);">漲跌%</th>
               <th style="padding:4px 3px;text-align:right;color:var(--muted);">外資</th>
               <th style="padding:4px 3px;text-align:right;color:var(--muted);">投信</th>
               <th style="padding:4px 3px;text-align:right;color:var(--muted);">資金</th>
               <th style="padding:4px 3px;text-align:left;color:var(--muted);">產業</th>
             </tr>
           </thead>
-          <tbody id="limitup-body"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">點擊「漲停股」分頁載入</td></tr></tbody>
+          <tbody id="limitup-body"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px;">點擊「漲停股」分頁載入</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -1166,8 +1168,8 @@
 
   // ── 漲停股列表 ──
   let limitUpLoaded = false;
-  async function loadLimitUp() {
-    if (limitUpLoaded) return;
+  async function loadLimitUp(force = false) {
+    if (limitUpLoaded && !force) return;
     const tbody = document.getElementById('limitup-body');
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">載入中…</td></tr>';
     try {
@@ -1177,28 +1179,27 @@
       const data = json.data;
       document.getElementById('limitup-count').textContent = `(${data.length})`;
       if (!data.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">目前無漲停股</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px;">目前無漲停股</td></tr>';
         return;
       }
       tbody.innerHTML = data.map(r => {
-        const chg = r['漲跌幅'] ?? 0;
-        const isUp = chg >= 0;
-        const color = isUp ? 'var(--green)' : 'var(--red)';
-        const kbar = kbarSVG(r['開盤'] ?? r['股價'], r['股價'], r['股價'], r['股價']);
-        const foreign = r['外資'] != null ? (r['外資'] > 0 ? `<span style="color:var(--green)">+${r['外資']}</span>` : `<span style="color:var(--red)">${r['外資']}</span>`) : '—';
-        const trust  = r['投信']  != null ? (r['投信']  > 0 ? `<span style="color:var(--green)">+${r['投信']}</span>`  : `<span style="color:var(--red)">${r['投信']}</span>`)  : '—';
+        const chg  = r['漲跌幅'] ?? 0;
+        const kbar = kbarSVG(r['開盤'] ?? r['股價'], r['最高'] ?? r['股價'], r['最低'] ?? r['股價'], r['股價']);
+        const fmtSign = (v) => v == null ? '—' :
+          `<span style="color:${v >= 0 ? 'var(--green)' : 'var(--red)'}">${v >= 0 ? '+' : ''}${v}</span>`;
         const cap = r['資金(億)'] != null ? r['資金(億)'].toFixed(2) : '—';
         return `<tr>
           <td>${kbar}</td>
-          <td style="color:${color};font-weight:600;">${r['代號']}</td>
-          <td>${r['名稱']}</td>
-          <td style="text-align:right;">${foreign}</td>
-          <td style="text-align:right;">${trust}</td>
+          <td style="color:var(--green);font-weight:600;">${r['代號']}</td>
+          <td style="text-align:left;">${r['名稱']}</td>
+          <td style="text-align:right;">${r['股價'] ?? '—'}</td>
+          <td style="text-align:right;color:var(--green);">+${chg.toFixed(2)}%</td>
+          <td style="text-align:right;">${fmtSign(r['外資'])}</td>
+          <td style="text-align:right;">${fmtSign(r['投信'])}</td>
           <td style="text-align:right;">${cap}</td>
           <td style="color:var(--muted);font-size:10px;">${r['產業類型'] || '—'}</td>
         </tr>`;
       }).join('');
-      limitUpLoaded = true;
     } catch(e) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red);padding:16px;">❌ ${e.message}</td></tr>`;
     }
@@ -1242,7 +1243,7 @@
   });
   intervalSel.addEventListener('change', () => { countdown = +intervalSel.value; countdownEl.textContent = countdown; });
 
-  [fChangeEn, fItufEn, fYoyEn, fYoy1En, fGapEn].forEach((cb, i) => {
+  [fChangeEn, fItufEn, fForeignEn, fYoyEn, fYoy1En, fGapEn].forEach((cb, i) => {
     const ids = ['fl-change','fl-ituf','fl-yoy','fl-yoy1','fl-gap'];
     cb.addEventListener('change', () => {
       document.getElementById(ids[i]).classList.toggle('active', cb.checked);
