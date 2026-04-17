@@ -373,7 +373,8 @@ def get_wespai_data():
 
 
 def get_histock_codes():
-    """Get top-100 stock codes + price info + volume (億) from HiStock."""
+    """Get stock codes + price info + volume (億) from HiStock.
+    Fetches top-150 so that after filtering out no-YOY stocks we still have 100."""
     url = 'https://histock.tw/stock/rank.aspx?m=13&p=all'
     r = requests.get(url, headers=HEADERS, timeout=20)
     r.raise_for_status()
@@ -393,7 +394,7 @@ def get_histock_codes():
     df['最高']    = pd.to_numeric(df['最高'],    errors='coerce')
     df['最低']    = pd.to_numeric(df['最低'],    errors='coerce')
     df['成交值(億)'] = pd.to_numeric(df['成交值(億)'], errors='coerce')
-    return df.head(100)
+    return df.head(150)  # 多抓 50 筆緩衝，過濾無 YOY 後仍能湊滿 100
 
 
 def get_stock_market(code):
@@ -543,6 +544,8 @@ def run_stock_update():
         raise ValueError('無法取得任何股票資料')
 
     df = pd.DataFrame(rows)
+    # 過濾掉沒有月(YOY)資料的標的（ETF/基金等），再依成交值取前100名
+    df = df[df['月(YOY)'].notna()]
     df = df.sort_values('資金(億)', ascending=False).head(100).reset_index(drop=True)
     df.insert(0, '排序', range(1, len(df) + 1))
 

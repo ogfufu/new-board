@@ -171,18 +171,18 @@
     /* ── Layout ── */
     .content-wrap { display: flex; flex: 1; min-height: 0; overflow: hidden; }
     .main-area    { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
-    .table-wrap   { overflow: auto; padding: 12px 18px 24px; flex: 1; }
+    .table-wrap   { overflow: auto; padding: 6px 10px 12px; flex: 1; }
 
     /* ── Table ── */
-    table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+    table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 11px; }
 
     thead th {
       background: var(--header-bg);
       border: 1px solid var(--border);
-      padding: 7px 10px;
+      padding: 4px 6px;
       text-align: center;
       font-weight: 600;
-      font-size: 12px;
+      font-size: 11px;
       position: sticky;
       top: 0;
       cursor: pointer;
@@ -200,7 +200,7 @@
     tbody tr:hover { background: #1c2128; }
     tbody td {
       border: 1px solid var(--border);
-      padding: 6px 10px;
+      padding: 2px 6px;
       text-align: right;
     }
     /* left-align text columns */
@@ -209,7 +209,7 @@
     tbody td.td-industry { text-align: left; }
     /* center rank & kbar */
     tbody td.td-rank,
-    tbody td.td-kbar { text-align: center; padding: 3px 6px; vertical-align: middle; }
+    tbody td.td-kbar { text-align: center; padding: 2px 4px; vertical-align: middle; }
     tbody td.td-kbar svg { display: block; margin: 0 auto; }
 
     /* Taiwan: pos=紅, neg=綠 */
@@ -322,18 +322,21 @@
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 8px 10px;
-      min-width: 200px;
+      min-width: 220px;
+      max-width: 340px;
       box-shadow: 0 8px 24px rgba(0,0,0,.5);
       pointer-events: none;
     }
     .ind-tooltip.visible { display: block; }
-    .ind-tooltip .tt-title { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .4px; }
+    .ind-tooltip .tt-title { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 6px; letter-spacing: .4px; }
     .ind-tooltip table { width: 100%; border-collapse: collapse; }
-    .ind-tooltip td { padding: 3px 6px; font-size: 12px; border-bottom: 1px solid var(--border); }
+    .ind-tooltip td { padding: 2px 4px; font-size: 11px; border-bottom: 1px solid var(--border); vertical-align: middle; }
     .ind-tooltip tr:last-child td { border-bottom: none; }
-    .ind-tooltip td:first-child { color: var(--accent); font-weight: 600; min-width: 46px; }
-    .ind-tooltip td:nth-child(2) { color: var(--text); }
-    .ind-tooltip td:nth-child(3) { text-align: right; font-weight: 600; min-width: 52px; }
+    .ind-tooltip td:first-child { min-width: 14px; }
+    .ind-tooltip td:nth-child(2) { color: var(--text); font-weight: 600; min-width: 44px; }
+    .ind-tooltip td:nth-child(3) { color: var(--text); }
+    .ind-tooltip td:nth-child(4) { text-align: right; font-weight: 600; min-width: 52px; }
+    .ind-tooltip td:nth-child(5) { text-align: right; color: var(--muted); min-width: 44px; }
 
     /* K-bar hover tooltip */
     #kbar-tooltip {
@@ -530,15 +533,18 @@
 <!-- Filter bar -->
 <div class="filter-bar">
   <span class="f-label">篩選條件</span>
+  <label class="f-item" id="fl-new" title="只顯示即時排行榜有、對照排行榜沒有，且月(YOY)有資料的標的">
+    <input type="checkbox" id="f-new-en"> 👑 新上榜
+  </label>
   <label class="f-item" id="fl-change">
     <input type="checkbox" id="f-change-en"> 漲跌幅 &gt;
     <input type="number" id="f-change-val" value="5" step="0.1"> %
   </label>
-  <label class="f-item" id="fl-ituf">
-    <input type="checkbox" id="f-ituf-en"> 投信 ≥ 0
-  </label>
   <label class="f-item" id="fl-foreign">
     <input type="checkbox" id="f-foreign-en"> 外資 ≥ 0
+  </label>
+  <label class="f-item" id="fl-ituf">
+    <input type="checkbox" id="f-ituf-en"> 投信 ≥ 0
   </label>
   <label class="f-item" id="fl-yoy">
     <input type="checkbox" id="f-yoy-en"> 月(YOY) ≥
@@ -624,12 +630,17 @@
 
     <!-- 漲停股列表 -->
     <div id="side-limitup" class="side-pane" style="display:none;flex-direction:column;overflow:hidden;">
-      <div class="panel-sub" style="margin-bottom:6px;">漲跌幅 &gt; 9%，資料來源：HiStock</div>
+      <div class="panel-sub" style="margin-bottom:4px;">漲跌幅 &gt; 9%，資料來源：HiStock</div>
+      <!-- 產業分析 -->
+      <div id="limitup-sector-analysis" style="margin-bottom:6px;display:none;">
+        <div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:3px;letter-spacing:.5px;">▎ 產業分析</div>
+        <div id="limitup-sector-bars" style="display:flex;flex-direction:column;gap:2px;"></div>
+      </div>
       <div style="overflow:auto;flex:1;">
         <table id="limitup-table" style="width:100%;border-collapse:collapse;font-size:11px;">
           <thead>
             <tr style="position:sticky;top:0;background:var(--bg);z-index:1;">
-              <th style="padding:4px 3px;text-align:left;color:var(--muted);">K棒</th>
+              <th style="padding:4px 3px;width:18px;text-align:left;color:var(--muted);">K棒</th>
               <th style="padding:4px 3px;text-align:left;color:var(--muted);">代號</th>
               <th style="padding:4px 3px;text-align:left;color:var(--muted);">名稱</th>
               <th style="padding:4px 3px;text-align:right;color:var(--muted);">股價</th>
@@ -793,6 +804,7 @@
   const fChangeVal = document.getElementById('f-change-val');
   const fItufEn    = document.getElementById('f-ituf-en');
   const fForeignEn = document.getElementById('f-foreign-en');
+  const fNewEn     = document.getElementById('f-new-en');
   const fYoyEn     = document.getElementById('f-yoy-en');
   const fYoyVal    = document.getElementById('f-yoy-val');
   const fYoy1En    = document.getElementById('f-yoy1-en');
@@ -801,9 +813,9 @@
   const fGapVal    = document.getElementById('f-gap-val');
 
   // ── Mini K-bar SVG ──
-  function kbarSVG(open, high, low, close) {
+  function kbarSVG(open, high, low, close, H = 28) {
     if (!open || !high || !low || !close || high <= low) return '';
-    const W = 12, H = 28, pad = 2;
+    const W = 12, pad = 2;
     const range = high - low;
     const toY   = v => pad + (high - v) / range * (H - 2 * pad);
     const color = close >= open ? 'var(--red)' : 'var(--green)';
@@ -813,7 +825,7 @@
     const yBB   = toY(Math.min(open, close));
     const bodyH = Math.max(yBB - yBT, 1.5);
     const cx    = W / 2;
-    return `<svg width="${W}" height="${H}" style="display:block;overflow:visible">` +
+    return `<svg width="${W}" height="${H}" style="display:block;overflow:hidden">` +
       `<line x1="${cx}" y1="${yH}" x2="${cx}" y2="${yBT}" stroke="${color}" stroke-width="1.5" stroke-linecap="round"/>` +
       `<rect x="1.5" y="${yBT}" width="${W - 3}" height="${bodyH}" fill="${color}" rx="0.5"/>` +
       `<line x1="${cx}" y1="${yBB}" x2="${cx}" y2="${yL}" stroke="${color}" stroke-width="1.5" stroke-linecap="round"/>` +
@@ -894,6 +906,15 @@
     if (fGapEn.checked && fGapVal.value !== '') {
       const t = parseFloat(fGapVal.value);
       if (!isNaN(t)) rows = rows.filter(r => calcGapPct(r) >= t);
+    }
+    if (fNewEn.checked) {
+      // 只保留「即時排行榜有、對照排行榜沒有」且月(YOY)有資料的標的
+      rows = rows.filter(r => {
+        const code = String(r['代號']);
+        const isNew = prevHistCodes.size === 0 || !prevHistCodes.has(code);
+        const hasYoy = r['月(YOY)'] != null && r['月(YOY)'] !== '' && !isNaN(r['月(YOY)']);
+        return isNew && hasYoy;
+      });
     }
     return rows;
   }
@@ -1052,8 +1073,8 @@
       const low   = r['最低'];
       const close = r['股價'];
 
-      // K-bar cell
-      const kbarCell = `<td class="td-kbar">${kbarSVG(open, high, low, close)}</td>`;
+      // K-bar cell (H=18 與漲停股表格一致)
+      const kbarCell = `<td class="td-kbar"><div style="width:12px;height:18px;overflow:hidden;margin:0 auto;">${kbarSVG(open, high, low, close, 18)}</div></td>`;
 
       // Highlight condition: 投信>=0 AND 月(YOY)>0
       const hl = (r['投信'] ?? 0) >= 0 && (r['月(YOY)'] ?? 0) > 0;
@@ -1171,37 +1192,102 @@
   async function loadLimitUp(force = false) {
     if (limitUpLoaded && !force) return;
     const tbody = document.getElementById('limitup-body');
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">載入中…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px;">載入中…</td></tr>';
     try {
       const res  = await fetch('/api/limit-up');
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
-      const data = json.data;
+      // 依成交金額大到小排序
+      const data = (json.data || []).sort((a, b) => (b['資金(億)'] ?? 0) - (a['資金(億)'] ?? 0));
       document.getElementById('limitup-count').textContent = `(${data.length})`;
       if (!data.length) {
         tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px;">目前無漲停股</td></tr>';
+        document.getElementById('limitup-sector-analysis').style.display = 'none';
+        limitUpLoaded = true;
         return;
       }
+
+      // ── 產業分析（前5大成交值）──
+      const sectorMap = {};
+      const sectorStocks = {};
+      data.forEach(r => {
+        const sec = r['產業類型'] || '其他';
+        if (!sectorMap[sec]) { sectorMap[sec] = { count: 0, cap: 0 }; sectorStocks[sec] = []; }
+        sectorMap[sec].count++;
+        sectorMap[sec].cap += r['資金(億)'] ?? 0;
+        sectorStocks[sec].push(r);
+      });
+      const top5Sectors = Object.entries(sectorMap)
+        .sort((a, b) => b[1].cap - a[1].cap)
+        .slice(0, 5);
+      const maxCap = top5Sectors[0]?.[1].cap || 1;
+      const barsEl = document.getElementById('limitup-sector-bars');
+      barsEl.innerHTML = top5Sectors.map(([sec, info]) => {
+        const pct    = (info.cap / maxCap * 100).toFixed(0);
+        const capStr = info.cap >= 1 ? info.cap.toFixed(1) + '億' : (info.cap * 100).toFixed(0) + '百萬';
+        return `<div class="lu-sec-bar" data-sector="${sec}"
+          style="display:flex;align-items:center;gap:4px;font-size:10px;cursor:pointer;
+                 padding:2px 3px;border-radius:3px;transition:background .15s;">
+          <span style="width:68px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${sec}">${sec}</span>
+          <div style="flex:1;background:var(--border);border-radius:2px;height:7px;overflow:hidden;">
+            <div style="width:${pct}%;background:var(--red);height:100%;border-radius:2px;"></div>
+          </div>
+          <span style="width:38px;text-align:right;color:var(--muted);">${capStr}</span>
+          <span style="width:22px;text-align:right;color:var(--muted);">${info.count}支</span>
+        </div>`;
+      }).join('');
+      document.getElementById('limitup-sector-analysis').style.display = 'block';
+
+      // ── 產業 hover tooltip ──
+      barsEl.querySelectorAll('.lu-sec-bar').forEach(el => {
+        el.addEventListener('mouseenter', () => { el.style.background = 'rgba(255,255,255,.06)'; });
+        el.addEventListener('mouseleave', () => { el.style.background = ''; hideIndTooltip(); });
+        el.addEventListener('mousemove', e => {
+          const sec    = el.dataset.sector;
+          const stocks = sectorStocks[sec] || [];
+          ttTitle.textContent = `${sec}（${stocks.length} 支）`;
+          ttTable.innerHTML = stocks.map(r => {
+            const chg  = r['漲跌幅'] ?? 0;
+            const kbar = kbarSVG(r['開盤'] ?? r['股價'], r['最高'] ?? r['股價'], r['最低'] ?? r['股價'], r['股價'], 16);
+            const cap  = r['資金(億)'] != null ? r['資金(億)'].toFixed(1) : '—';
+            return `<tr>
+              <td style="padding:2px 3px;">${kbar}</td>
+              <td style="padding:2px 3px;color:var(--text);font-weight:600;">${r['代號']}</td>
+              <td style="padding:2px 3px;max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r['名稱']}</td>
+              <td style="padding:2px 3px;text-align:right;color:var(--red);">+${chg.toFixed(2)}%</td>
+              <td style="padding:2px 3px;text-align:right;color:var(--muted);">${cap}億</td>
+            </tr>`;
+          }).join('');
+          moveTooltip(e);
+          ttEl.classList.add('visible');
+        });
+      });
+
+      // ── 列表渲染 ──
+      // 外資/投信：>0 買超→紅(台股正向) <0 賣超→綠 =0 白
+      const fmtSign = (v) => v == null ? '—' :
+        v > 0  ? `<span style="color:var(--red)">+${v}</span>` :
+        v < 0  ? `<span style="color:var(--green)">${v}</span>` :
+                 `<span style="color:var(--text)">0</span>`;
       tbody.innerHTML = data.map(r => {
         const chg  = r['漲跌幅'] ?? 0;
-        const kbar = kbarSVG(r['開盤'] ?? r['股價'], r['最高'] ?? r['股價'], r['最低'] ?? r['股價'], r['股價']);
-        const fmtSign = (v) => v == null ? '—' :
-          `<span style="color:${v >= 0 ? 'var(--green)' : 'var(--red)'}">${v >= 0 ? '+' : ''}${v}</span>`;
-        const cap = r['資金(億)'] != null ? r['資金(億)'].toFixed(2) : '—';
+        const kbar = kbarSVG(r['開盤'] ?? r['股價'], r['最高'] ?? r['股價'], r['最低'] ?? r['股價'], r['股價'], 18);
+        const cap  = r['資金(億)'] != null ? r['資金(億)'].toFixed(2) : '—';
         return `<tr>
-          <td>${kbar}</td>
-          <td style="color:var(--green);font-weight:600;">${r['代號']}</td>
-          <td style="text-align:left;">${r['名稱']}</td>
-          <td style="text-align:right;">${r['股價'] ?? '—'}</td>
-          <td style="text-align:right;color:var(--green);">+${chg.toFixed(2)}%</td>
-          <td style="text-align:right;">${fmtSign(r['外資'])}</td>
-          <td style="text-align:right;">${fmtSign(r['投信'])}</td>
-          <td style="text-align:right;">${cap}</td>
-          <td style="color:var(--muted);font-size:10px;">${r['產業類型'] || '—'}</td>
+          <td style="padding:2px 3px;line-height:1;"><div style="width:12px;height:18px;overflow:hidden;">${kbar}</div></td>
+          <td style="padding:2px 3px;color:var(--text);font-weight:600;">${r['代號']}</td>
+          <td style="padding:2px 3px;text-align:left;">${r['名稱']}</td>
+          <td style="padding:2px 3px;text-align:right;">${r['股價'] ?? '—'}</td>
+          <td style="padding:2px 3px;text-align:right;color:var(--red);">+${chg.toFixed(2)}%</td>
+          <td style="padding:2px 3px;text-align:right;">${fmtSign(r['外資'])}</td>
+          <td style="padding:2px 3px;text-align:right;">${fmtSign(r['投信'])}</td>
+          <td style="padding:2px 3px;text-align:right;">${cap}</td>
+          <td style="padding:2px 3px;text-align:left;color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60px;" title="${r['產業類型'] || ''}">${r['產業類型'] || '—'}</td>
         </tr>`;
       }).join('');
+      limitUpLoaded = true;
     } catch(e) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red);padding:16px;">❌ ${e.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--red);padding:16px;">❌ ${e.message}</td></tr>`;
     }
   }
 
@@ -1243,12 +1329,16 @@
   });
   intervalSel.addEventListener('change', () => { countdown = +intervalSel.value; countdownEl.textContent = countdown; });
 
-  [fChangeEn, fItufEn, fForeignEn, fYoyEn, fYoy1En, fGapEn].forEach((cb, i) => {
-    const ids = ['fl-change','fl-ituf','fl-yoy','fl-yoy1','fl-gap'];
+  [fChangeEn, fForeignEn, fItufEn, fYoyEn, fYoy1En, fGapEn].forEach((cb, i) => {
+    const ids = ['fl-change','fl-foreign','fl-ituf','fl-yoy','fl-yoy1','fl-gap'];
     cb.addEventListener('change', () => {
       document.getElementById(ids[i]).classList.toggle('active', cb.checked);
       renderTable();
     });
+  });
+  fNewEn.addEventListener('change', () => {
+    document.getElementById('fl-new').classList.toggle('active', fNewEn.checked);
+    renderTable();
   });
   [fChangeVal, fYoyVal, fYoy1Val, fGapVal].forEach(inp => inp.addEventListener('input', renderTable));
 
