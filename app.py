@@ -610,6 +610,21 @@ def api_get_compare():
     return jsonify({'success': True, 'data': records, 'date': date_str})
 
 
+@app.route('/api/refresh-wespai', methods=['POST'])
+def api_refresh_wespai():
+    """強制清除 Wespai 快取並重新抓取最新基本面資料。"""
+    global _last_df
+    with _wespai_lock:
+        _wespai_cache['data'] = None
+        _wespai_cache['date'] = None
+    try:
+        get_wespai_data()          # 重新抓取
+        _last_df = None            # 清除股票快取，下次刷新重新合併
+        return jsonify({'success': True, 'message': 'Wespai 基本面資料已更新'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/gsheet-test')
 def api_gsheet_test():
     """診斷用：測試 Google Sheets 連線是否正常。"""
