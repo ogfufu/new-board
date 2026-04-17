@@ -373,14 +373,25 @@ def get_wespai_data():
 
 
 def get_histock_codes():
-    """Get top-100 stock codes + volume (億) from HiStock."""
+    """Get top-100 stock codes + price info + volume (億) from HiStock."""
     url = 'https://histock.tw/stock/rank.aspx?m=13&p=all'
     r = requests.get(url, headers=HEADERS, timeout=20)
     r.raise_for_status()
     df_all = pd.read_html(io.StringIO(r.text))[0]
     df_all.columns = df_all.columns.str.replace('▼', '', regex=False)
-    df = df_all[['代號', '成交值(億)']].copy()
+    # 依欄位索引取值，避免編碼問題
+    # col[0]=代號, col[1]=名稱, col[2]=股價, col[4]=漲跌%
+    # col[7]=開盤, col[8]=最高, col[9]=最低, col[12]=成交值(億)
+    df = df_all.iloc[:, [0, 1, 2, 4, 7, 8, 9, 12]].copy()
+    df.columns = ['代號', '名稱', '股價', '漲跌幅%', '開盤', '最高', '最低', '成交值(億)']
     df['代號'] = df['代號'].astype(str)
+    df['股價']    = pd.to_numeric(df['股價'],    errors='coerce')
+    df['漲跌幅%'] = (df['漲跌幅%'].astype(str)
+                     .str.replace('%', '', regex=False).str.strip()
+                     .pipe(pd.to_numeric, errors='coerce'))
+    df['開盤']    = pd.to_numeric(df['開盤'],    errors='coerce')
+    df['最高']    = pd.to_numeric(df['最高'],    errors='coerce')
+    df['最低']    = pd.to_numeric(df['最低'],    errors='coerce')
     df['成交值(億)'] = pd.to_numeric(df['成交值(億)'], errors='coerce')
     return df.head(100)
 
@@ -460,33 +471,33 @@ def get_twse_realtime(codes_markets):
 
 
 def run_stock_update():
-    # 1. Top-100 codes + volume from HiStock
+    # 1. Top-100 codes + 股價/漲跌幅/開高低 from HiStock
     df_codes = get_histock_codes()
     codes = df_codes['代號'].tolist()
 
     # 2. Market type for each code (上市 / 上櫃)
-    codes_markets = [(c, get_stock_market(c)) for c in codes]
-    market_map = dict(codes_markets)
+    market_map = {c: get_stock_market(c) for c in codes}
 
-    # 3. Real-time prices from TWSE
-    price_data = get_twse_realtime(codes_markets)
-
-    # 4. Wespai: 投信 + YOY
+    # 3. Wespai: 投信 + YOY
     df_wes = get_wespai_data()
     wes_idx = df_wes.set_index('代號')
 
-    # 5. Merge
+    # 4. Merge（股價來自 HiStock）
     rows = []
     for _, row in df_codes.iterrows():
-        code = row['代號']
-        cap  = row['成交值(億)']
-        if isinstance(cap, float) and (cap != cap):  # NaN check
+        code  = row['代號']
+        cap   = row['成交值(億)']
+        if isinstance(cap, float) and (cap != cap):
             cap = None
-        pi   = price_data.get(code)
-        if pi is None:
+        price  = row['股價']
+        chg    = row['漲跌幅%']
+        open_p = row['開盤']
+        high_p = row['最高']
+        low_p  = row['最低']
+        if pd.isna(price):
             continue
 
-        name     = pi['name']
+        name     = row['名稱']
         trust    = 0
         foreign  = 0
         yoy      = None
@@ -515,11 +526,11 @@ def run_stock_update():
             '代號':      code,
             '名稱':      name,
             '市場':      market_map.get(code, '上市'),
-            '股價':      pi['price'],
-            '漲跌幅':    pi['change_pct'],
-            '開盤':      pi['open'],
-            '最高':      pi['high'],
-            '最低':      pi['low'],
+            '股價':      price,
+            '漲跌幅':    chg if pd.notna(chg) else 0.0,
+            '開盤':      None if pd.isna(open_p) else open_p,
+            '最高':      None if pd.isna(high_p) else high_p,
+            '最低':      None if pd.isna(low_p)  else low_p,
             '投信':      trust,
             '外資':      foreign,
             '月(YOY)':   yoy,
