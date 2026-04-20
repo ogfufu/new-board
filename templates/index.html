@@ -1590,6 +1590,12 @@
   }
 
   let _sectorsSaveTimer = null;
+  let _renderTableTimer = null;
+  function renderTableDebounced() {
+    clearTimeout(_renderTableTimer);
+    _renderTableTimer = setTimeout(renderTable, 250);
+  }
+
   function saveSectors() {
     localStorage.setItem('rack_sectors', JSON.stringify(sectors));
     // Debounce server save (800ms after last change)
@@ -1824,6 +1830,7 @@
         sectors[idx].stocks[si] = inp.value.trim();
         saveSectors();
         renderSectorCard(card);
+        renderTableDebounced(); // 同步更新主表 👁️
       });
     });
     card.querySelector('.btn-add-slot').addEventListener('click', () => {
@@ -1835,6 +1842,7 @@
       sectors.splice(idx, 1);
       saveSectors();
       renderSectorsGrid();
+      renderTable(); // 立即同步主表 👁️
     });
 
     addDragToCard(card, idx);
