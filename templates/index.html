@@ -1151,8 +1151,14 @@
       return `<tr>${watchCell}${kbarCell}${cells.join('')}</tr>`;
     }).join('');
     // Watch button click handlers
-    tbody.querySelectorAll('.btn-watch:not(.watched)').forEach(btn => {
-      btn.addEventListener('click', () => openSectorPick(btn.dataset.code));
+    tbody.querySelectorAll('.btn-watch').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.classList.contains('watched')) {
+          removeCodeFromSectors(btn.dataset.code);
+        } else {
+          openSectorPick(btn.dataset.code);
+        }
+      });
     });
     renderOverviewChart();
   }
@@ -1546,6 +1552,17 @@
       });
     });
     return s;
+  }
+
+  // ── Remove code from all sectors ──
+  function removeCodeFromSectors(code) {
+    sectors.forEach(sec => {
+      sec.stocks = (sec.stocks || []).filter(s => s.trim() !== code);
+    });
+    saveSectors();
+    renderSectorsGrid();
+    renderTable();
+    setStatus('', `🗑️ ${code} 已從觀察清單移除`);
   }
 
   // ── Add code to sector ──
