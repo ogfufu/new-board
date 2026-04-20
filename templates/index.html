@@ -1573,7 +1573,12 @@
   // ── Sector pick modal ──
   function openSectorPick(code) {
     if (!sectors.length) {
-      setStatus('error', '❌ 請先在「類股K棒」分頁建立清單');
+      // 自動新增一個清單並直接加入
+      sectors.push({ name: '類股一', stocks: [code] });
+      saveSectors();
+      renderSectorsGrid();
+      renderTable();
+      setStatus('', `✅ 已自動建立「類股一」並加入 ${code}`);
       return;
     }
     const list = document.getElementById('sector-pick-list');
