@@ -690,7 +690,7 @@
 <!-- Sectors tab -->
 <div id="tab-sectors" class="tab-pane">
   <div class="sectors-toolbar">
-    <button class="btn btn-add-sector" id="btn-add-sector">+ 新增類股</button>
+    <button class="btn btn-add-sector" id="btn-add-sector">+ 新增清單</button>
     <span class="sectors-hint">資料來源：即時排行榜（需先載入資料）</span>
   </div>
   <div class="sectors-grid" id="sectors-grid"></div>
@@ -1635,15 +1635,25 @@
   }
 
   async function loadSectors() {
+    // 先用 localStorage 立即顯示（不阻塞排行榜）
+    renderSectorsGrid();
+    // 記錄 fetch 前快照，避免覆蓋使用者在等待期間的修改
+    const snapshotBeforeFetch = JSON.stringify(sectors);
     try {
       const res  = await fetch('/api/sectors');
       const json = await res.json();
       if (json.success && json.sectors && json.sectors.length > 0) {
-        sectors = json.sectors;
-        localStorage.setItem('rack_sectors', JSON.stringify(sectors));
+        // 若使用者在等待期間已做修改（快照不同），以本地為主，不覆蓋
+        if (JSON.stringify(sectors) !== snapshotBeforeFetch) return;
+        const remote = JSON.stringify(json.sectors);
+        if (remote !== snapshotBeforeFetch) {
+          sectors = json.sectors;
+          localStorage.setItem('rack_sectors', JSON.stringify(sectors));
+          renderSectorsGrid();
+          renderTable();
+        }
       }
     } catch {}
-    renderSectorsGrid();
   }
 
   // Variable-N K-bar SVG (works for both fixed-5 and watchlist cards)
@@ -1719,10 +1729,16 @@
   }
 
   function renderSectorCard(cardEl) {
+    const codes = [...cardEl.querySelectorAll('.sector-code-input')].map(i => i.value.trim());
+    const chartEl = cardEl.querySelector('.sector-chart');
+    // 沒有任何代號時不畫圖，顯示提示
+    if (!codes.some(c => c)) {
+      chartEl.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:24px 0;">按 ＋ 加入標的</div>';
+      return;
+    }
     const isWatch = cardEl.classList.contains('watchlist-card');
-    const codes   = [...cardEl.querySelectorAll('.sector-code-input')].map(i => i.value.trim());
     const info    = isWatch ? buildWatchStocksInfo(codes) : buildStocksInfo(codes);
-    cardEl.querySelector('.sector-chart').innerHTML = info.length ? sectorKBarSVGN(info) : '';
+    chartEl.innerHTML = info.length ? sectorKBarSVGN(info) : '';
   }
 
   function renderAllSectorCharts() {
