@@ -36,6 +36,46 @@ def _get_gsheet():
     gc = gspread.authorize(creds)
     return gc.open_by_key(GSHEET_ID).sheet1
 
+
+def _get_gsheet_sectors():
+    """Return Sheet2 (sectors watchlist). Creates it if it doesn't exist."""
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
+    if creds_json:
+        info = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(info, scopes=GSHEET_SCOPES)
+    elif os.path.exists(_CREDS_FILE):
+        creds = Credentials.from_service_account_file(_CREDS_FILE, scopes=GSHEET_SCOPES)
+    else:
+        raise RuntimeError('找不到 Google 憑證')
+    gc = gspread.authorize(creds)
+    wb = gc.open_by_key(GSHEET_ID)
+    try:
+        return wb.get_worksheet(1)
+    except Exception:
+        return wb.add_worksheet(title='sectors', rows=10, cols=2)
+
+
+def save_sectors_to_gsheet(sectors):
+    """Save sectors JSON to Sheet2 cell A1."""
+    ws = _get_gsheet_sectors()
+    ws.clear()
+    ws.update('A1', [[json.dumps(sectors, ensure_ascii=False)]])
+
+
+def get_sectors_from_gsheet():
+    """Read sectors JSON from Sheet2 cell A1. Returns list or None."""
+    try:
+        ws = _get_gsheet_sectors()
+        val = ws.cell(1, 1).value
+        if val:
+            data = json.loads(val)
+            if isinstance(data, list):
+                return data
+    except Exception:
+        pass
+    return None
+
+
 GSHEET_COLS = ['排序','代號','名稱','市場','股價','漲跌幅','外資','投信',
                '月(YOY)','月-1(YOY)','開盤','最高','最低','資金(億)','產業類型']
 
@@ -647,20 +687,37 @@ def api_compare_status():
 
 @app.route('/api/sectors', methods=['GET'])
 def api_get_sectors():
-    """Return saved sector card configurations."""
+    """Return saved sector card configurations (Google Sheets first, SQLite fallback)."""
+    # Try Google Sheets first (cross-device sync)
+    try:
+        gs_data = get_sectors_from_gsheet()
+        if gs_data is not None:
+            # Also update local SQLite cache
+            save_sector_configs(json.dumps(gs_data, ensure_ascii=False))
+            return jsonify({'success': True, 'sectors': gs_data, 'source': 'gsheet'})
+    except Exception:
+        pass
+    # Fallback to SQLite
     data = get_sector_configs()
     if data:
-        return jsonify({'success': True, 'sectors': json.loads(data)})
-    return jsonify({'success': True, 'sectors': []})
+        return jsonify({'success': True, 'sectors': json.loads(data), 'source': 'sqlite'})
+    return jsonify({'success': True, 'sectors': [], 'source': 'empty'})
 
 
 @app.route('/api/sectors', methods=['POST'])
 def api_save_sectors():
-    """Save sector card configurations."""
+    """Save sector card configurations (SQLite + Google Sheets)."""
     body = request.get_json()
     if not body or 'sectors' not in body:
         return jsonify({'success': False, 'error': 'invalid body'}), 400
-    save_sector_configs(json.dumps(body['sectors'], ensure_ascii=False))
+    sectors_data = body['sectors']
+    # Always save to SQLite
+    save_sector_configs(json.dumps(sectors_data, ensure_ascii=False))
+    # Also save to Google Sheets (best-effort)
+    try:
+        save_sectors_to_gsheet(sectors_data)
+    except Exception:
+        pass
     return jsonify({'success': True})
 
 

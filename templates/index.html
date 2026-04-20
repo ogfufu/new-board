@@ -488,13 +488,32 @@
     .sector-card.dragging  { opacity: 0.4; }
     .sector-card.drag-over { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
+    /* ── Watch (+/👁) column ── */
+    tbody td.td-watch { text-align: center; padding: 2px 2px; width: 20px; }
+    .btn-watch { background: none; border: none; cursor: pointer; font-size: 13px; padding: 0; line-height: 1; color: var(--muted); transition: color .15s; }
+    .btn-watch:hover { color: var(--accent); }
+    .btn-watch.watched { color: #58a6ff; cursor: default; }
+
+    /* ── Sector-pick modal ── */
+    #sector-pick-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:9000; align-items:center; justify-content:center; }
+    #sector-pick-modal.open { display:flex; }
+    .sector-pick-box { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:20px 22px 16px; min-width:200px; max-width:300px; box-shadow:0 8px 32px rgba(0,0,0,.5); }
+    .sector-pick-title { font-size:13px; font-weight:700; margin-bottom:12px; color:var(--fg); }
+    .sector-pick-list { display:flex; flex-direction:column; gap:7px; max-height:300px; overflow-y:auto; }
+    .btn-pick-sector { background:var(--header-bg); border:1px solid var(--border); color:var(--fg); border-radius:6px; padding:8px 12px; cursor:pointer; text-align:left; font-size:13px; }
+    .btn-pick-sector:hover { border-color:var(--accent); color:var(--accent); }
+    .btn-pick-cancel { background:none; border:none; color:var(--muted); cursor:pointer; margin-top:10px; font-size:12px; display:block; width:100%; text-align:center; }
+    .btn-pick-cancel:hover { color:var(--fg); }
+
+    /* ── Sector card: variable slots & add-slot button ── */
+    .btn-add-slot { background:none; border:1px dashed var(--border); color:var(--muted); border-radius:4px; font-size:12px; padding:3px 7px; cursor:pointer; flex-shrink:0; }
+    .btn-add-slot:hover { border-color:var(--accent); color:var(--accent); }
+
     /* Watchlist card: full grid width + wrapping code inputs */
     .watchlist-card { grid-column: 1 / -1; }
     .watch-codes { flex-wrap: wrap !important; }
     .watch-codes .sector-code-input { flex: none; width: 64px; }
 
-    /* 觀察 / watch button */
-    .btn-watch { background: #1f6feb; color: #fff; }
   </style>
 </head>
 <body>
@@ -588,6 +607,7 @@
       <table id="stock-table">
         <thead>
           <tr>
+            <th class="no-sort" style="width:24px;"></th>
             <th class="no-sort" style="width:22px">K棒</th>
             <th data-col="排序">排序</th>
             <th data-col="代號">代號</th>
@@ -605,10 +625,10 @@
           </tr>
         </thead>
         <tbody id="table-body">
-          <tr><td colspan="14" style="text-align:center;padding:40px;color:var(--muted)">載入中…</td></tr>
+          <tr><td colspan="15" style="text-align:center;padding:40px;color:var(--muted)">載入中…</td></tr>
         </tbody>
         <tfoot>
-          <tr><td colspan="14" id="tfoot-count" style="text-align:right">共 0 筆</td></tr>
+          <tr><td colspan="15" id="tfoot-count" style="text-align:right">共 0 筆</td></tr>
         </tfoot>
       </table>
     </div>
@@ -1066,12 +1086,13 @@
     tfootCount.textContent = `共 ${n} 筆`;
 
     if (!n) {
-      tbody.innerHTML = '<tr><td colspan="14" style="text-align:center;padding:40px;color:var(--muted)">無符合資料</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;padding:40px;color:var(--muted)">無符合資料</td></tr>';
       return;
     }
 
     const DISPLAY = ['排序','代號','名稱','市場','股價','漲跌幅','外資','投信','月(YOY)','月-1(YOY)','開盤','資金(億)','產業類型'];
 
+    const watchedCodes = getWatchedCodes();
     tbody.innerHTML = rows.map(r => {
       const open  = r['開盤'];
       const high  = r['最高'];
@@ -1080,6 +1101,11 @@
 
       // K-bar cell (H=18 與漲停股表格一致)
       const kbarCell = `<td class="td-kbar"><div style="width:12px;height:18px;overflow:hidden;margin:0 auto;">${kbarSVG(open, high, low, close, 18)}</div></td>`;
+
+      // Watch cell
+      const code = String(r['代號']);
+      const isWatched = watchedCodes.has(code);
+      const watchCell = `<td class="td-watch"><button class="btn-watch${isWatched ? ' watched' : ''}" data-code="${code}" title="${isWatched ? '已在觀察清單中' : '加入觀察清單'}">${isWatched ? '👁️' : '＋'}</button></td>`;
 
       // Highlight condition: 投信>=0 AND 月(YOY)>0
       const hl = (r['投信'] ?? 0) >= 0 && (r['月(YOY)'] ?? 0) > 0;
@@ -1122,8 +1148,12 @@
         return `<td>${val}</td>`;
       });
 
-      return `<tr>${kbarCell}${cells.join('')}</tr>`;
+      return `<tr>${watchCell}${kbarCell}${cells.join('')}</tr>`;
     }).join('');
+    // Watch button click handlers
+    tbody.querySelectorAll('.btn-watch:not(.watched)').forEach(btn => {
+      btn.addEventListener('click', () => openSectorPick(btn.dataset.code));
+    });
     renderOverviewChart();
   }
 
@@ -1507,6 +1537,58 @@
     { name: '類股二', stocks: ['', '', '', '', ''] },
   ];
 
+  // ── Watched codes helper ──
+  function getWatchedCodes() {
+    const s = new Set();
+    sectors.forEach(sec => {
+      (sec.stocks || []).forEach(code => {
+        if (code && code.trim()) s.add(code.trim());
+      });
+    });
+    return s;
+  }
+
+  // ── Add code to sector ──
+  function addCodeToSector(code, sectorIdx) {
+    const sec = sectors[sectorIdx];
+    if (!sec) return;
+    // If already present, skip
+    if ((sec.stocks || []).some(s => s.trim() === code)) {
+      setStatus('', `ℹ️ ${code} 已在「${sec.name || '類股'}」中`);
+      return;
+    }
+    // Find first empty slot, or append
+    const emptyIdx = (sec.stocks || []).findIndex(s => !s || !s.trim());
+    if (emptyIdx >= 0) {
+      sec.stocks[emptyIdx] = code;
+    } else {
+      sec.stocks.push(code);
+    }
+    saveSectors();
+    renderSectorsGrid();
+    renderTable();
+    setStatus('', `✅ ${code} 已加入「${sec.name || '類股'}」`);
+  }
+
+  // ── Sector pick modal ──
+  function openSectorPick(code) {
+    if (!sectors.length) {
+      setStatus('error', '❌ 請先在「類股K棒」分頁建立清單');
+      return;
+    }
+    const list = document.getElementById('sector-pick-list');
+    list.innerHTML = sectors.map((s, i) =>
+      `<button class="btn-pick-sector" data-idx="${i}">${s.name || '（未命名 ' + (i+1) + '）'}</button>`
+    ).join('');
+    list.querySelectorAll('.btn-pick-sector').forEach(btn => {
+      btn.addEventListener('click', () => {
+        addCodeToSector(code, parseInt(btn.dataset.idx));
+        document.getElementById('sector-pick-modal').classList.remove('open');
+      });
+    });
+    document.getElementById('sector-pick-modal').classList.add('open');
+  }
+
   let _sectorsSaveTimer = null;
   function saveSectors() {
     localStorage.setItem('rack_sectors', JSON.stringify(sectors));
@@ -1717,13 +1799,10 @@
     card.className = 'sector-card' + (isWatch ? ' watchlist-card' : '');
     card.dataset.idx = idx;
 
-    const codesHTML = isWatch
-      ? (sector.stocks || []).map(c =>
-          `<input class="sector-code-input" placeholder="代號" value="${(c||'').replace(/"/g,'&quot;')}" maxlength="6">`)
-          .join('')
-      : (sector.stocks || ['','','','','']).map((c, si) =>
-          `<input class="sector-code-input" placeholder="代號${si+1}" value="${(c||'').replace(/"/g,'&quot;')}" maxlength="6">`)
-          .join('');
+    const stockSlots = sector.stocks && sector.stocks.length > 0 ? sector.stocks : ['','','','',''];
+    const codesHTML = stockSlots.map((c, si) =>
+      `<input class="sector-code-input" placeholder="代號${si+1}" value="${(c||'').replace(/"/g,'&quot;')}" maxlength="6">`)
+      .join('') + `<button class="btn-add-slot" title="新增欄位">＋</button>`;
 
     card.innerHTML = `
       <div class="sector-card-header">
@@ -1731,7 +1810,7 @@
         <input class="sector-name-input" placeholder="${isWatch ? '觀察清單' : '類股名稱'}" value="${(sector.name||'').replace(/"/g,'&quot;')}">
         <button class="btn-del-sector" title="刪除">✕</button>
       </div>
-      <div class="sector-codes${isWatch ? ' watch-codes' : ''}">
+      <div class="sector-codes watch-codes">
         ${codesHTML}
       </div>
       <div class="sector-chart"></div>`;
@@ -1746,6 +1825,11 @@
         saveSectors();
         renderSectorCard(card);
       });
+    });
+    card.querySelector('.btn-add-slot').addEventListener('click', () => {
+      sectors[idx].stocks.push('');
+      saveSectors();
+      renderSectorsGrid();
     });
     card.querySelector('.btn-del-sector').addEventListener('click', () => {
       sectors.splice(idx, 1);
@@ -1763,6 +1847,15 @@
     grid.innerHTML = '';
     sectors.forEach((s, i) => grid.appendChild(createSectorCard(s, i)));
   }
+
+  // Modal cancel
+  document.getElementById('sector-pick-cancel').addEventListener('click', () => {
+    document.getElementById('sector-pick-modal').classList.remove('open');
+  });
+  document.getElementById('sector-pick-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('sector-pick-modal'))
+      document.getElementById('sector-pick-modal').classList.remove('open');
+  });
 
   document.getElementById('btn-add-sector').addEventListener('click', () => {
     sectors.push({ name: '', stocks: ['', '', '', '', ''] });
@@ -1797,5 +1890,13 @@
   loadCompareData();   // 自動從 Google Sheets 載入對照資料
   loadSectors();       // fetches sector configs from server DB (falls back to localStorage)
 </script>
+<!-- Sector pick modal -->
+<div id="sector-pick-modal">
+  <div class="sector-pick-box">
+    <div class="sector-pick-title">📌 選擇要加入的清單</div>
+    <div class="sector-pick-list" id="sector-pick-list"></div>
+    <button class="btn-pick-cancel" id="sector-pick-cancel">取消</button>
+  </div>
+</div>
 </body>
 </html>
