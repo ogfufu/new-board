@@ -696,6 +696,15 @@
   <div class="sectors-grid" id="sectors-grid"></div>
 </div>
 
+<!-- Sector pick modal -->
+<div id="sector-pick-modal">
+  <div class="sector-pick-box">
+    <div class="sector-pick-title">📌 選擇要加入的清單</div>
+    <div class="sector-pick-list" id="sector-pick-list"></div>
+    <button class="btn-pick-cancel" id="sector-pick-cancel">取消</button>
+  </div>
+</div>
+
 <!-- K-bar hover tooltip -->
 <div id="kbar-tooltip"></div>
 
@@ -1951,13 +1960,5 @@
   loadCompareData();   // 自動從 Google Sheets 載入對照資料
   loadSectors();       // fetches sector configs from server DB (falls back to localStorage)
 </script>
-<!-- Sector pick modal -->
-<div id="sector-pick-modal">
-  <div class="sector-pick-box">
-    <div class="sector-pick-title">📌 選擇要加入的清單</div>
-    <div class="sector-pick-list" id="sector-pick-list"></div>
-    <button class="btn-pick-cancel" id="sector-pick-cancel">取消</button>
-  </div>
-</div>
 </body>
 </html>
