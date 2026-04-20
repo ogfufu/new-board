@@ -398,6 +398,10 @@ _last_df = None
 _wespai_cache = {'data': None, 'date': None}
 _wespai_lock = threading.Lock()
 
+# ---------- 漲停保留：記錄當日曾進前100的代號 ----------
+_daily_seen_top100 = set()   # 當日累積曾進前100的代號
+_daily_seen_date   = None    # 記錄日期，換日時重置
+
 
 def get_wespai_data():
     with _wespai_lock:
@@ -449,7 +453,7 @@ def get_histock_codes():
     df['最高']    = pd.to_numeric(df['最高'],    errors='coerce')
     df['最低']    = pd.to_numeric(df['最低'],    errors='coerce')
     df['成交值(億)'] = pd.to_numeric(df['成交值(億)'], errors='coerce')
-    return df.head(150)  # 多抓 50 筆緩衝，過濾無 YOY 後仍能湊滿 100
+    return df.head(200)  # 多抓 buffer，確保漲停鎖住的標的仍在範圍內
 
 
 def get_stock_market(code):
@@ -527,6 +531,7 @@ def get_twse_realtime(codes_markets):
 
 
 def run_stock_update():
+    global _daily_seen_top100, _daily_seen_date
     # 1. Top-100 codes + 股價/漲跌幅/開高低 from HiStock
     df_codes = get_histock_codes()
     codes = df_codes['代號'].tolist()
@@ -599,14 +604,49 @@ def run_stock_update():
         raise ValueError('無法取得任何股票資料')
 
     df = pd.DataFrame(rows)
-    # 過濾掉沒有月(YOY)資料的標的（ETF/基金等），再依成交值取前100名
-    df = df[df['月(YOY)'].notna()]
-    df = df.sort_values('資金(億)', ascending=False).head(100).reset_index(drop=True)
-    df.insert(0, '排序', range(1, len(df) + 1))
+
+    # ── 換日重置 ──
+    import datetime as _dt
+    today = _dt.date.today().isoformat()
+    if _daily_seen_date != today:
+        _daily_seen_top100.clear()
+        _daily_seen_date = today  # type: ignore
+
+    # ── 前100名（需有YOY，過濾ETF）──
+    df_yoy    = df[df['月(YOY)'].notna()].copy()
+    df_sorted = df_yoy.sort_values('資金(億)', ascending=False).reset_index(drop=True)
+    top100    = df_sorted.head(100).copy()
+
+    # 累積當日曾進前100的代號
+    _daily_seen_top100.update(top100['代號'].tolist())
+
+    top100['漲停保留'] = False
+    top100.insert(0, '排序', range(1, len(top100) + 1))
+
+    # ── 漲停保留：曾進前100、現在不在前100、且仍漲停（漲跌幅 >= 9.5%）──
+    top100_codes  = set(top100['代號'])
+    dropped_codes = _daily_seen_top100 - top100_codes   # 曾在但現在掉出的
+
+    # 從 buffer（200筆，含無YOY的）中找回這些代號，確認仍漲停
+    limitup_extra = df[
+        df['代號'].isin(dropped_codes) &
+        (df['漲跌幅'] >= 9.5)
+    ].copy()
+
+    if not limitup_extra.empty:
+        limitup_extra['漲停保留'] = True
+        limitup_extra.insert(0, '排序', ['🔒'] * len(limitup_extra))
+        df_final = pd.concat([top100, limitup_extra], ignore_index=True)
+    else:
+        df_final = top100
 
     final_cols = ['排序','代號','名稱','市場','股價','漲跌幅','外資','投信',
-                  '月(YOY)','月-1(YOY)','開盤','最高','最低','資金(億)','產業類型']
-    return df[final_cols]
+                  '月(YOY)','月-1(YOY)','開盤','最高','最低','資金(億)','產業類型','漲停保留']
+    # 確保所有欄位存在
+    for c in final_cols:
+        if c not in df_final.columns:
+            df_final[c] = None
+    return df_final[final_cols]
 
 
 # ---------- Routes ----------

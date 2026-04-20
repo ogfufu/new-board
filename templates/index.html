@@ -229,6 +229,10 @@
     /* Row highlight: 投信>0 AND 月(YOY)>0 */
     td.code-hl { background: rgba(248,81,73,.22) !important; color: #fff; font-weight: 700; }
     .crown { font-size: 11px; margin-right: 2px; vertical-align: middle; }
+    /* 漲停保留列 */
+    tr.limitup-kept { background: rgba(248,81,73,.06); }
+    tr.limitup-kept:hover { background: rgba(248,81,73,.13) !important; }
+    .lock-badge { font-size: 12px; }
 
     /* Table footer */
     tfoot td {
@@ -1098,8 +1102,11 @@
     }
 
     const n = rows.length;
+    const keptN = rows.filter(r => r['漲停保留']).length;
     rowCount.textContent = n;
-    tfootCount.textContent = `共 ${n} 筆`;
+    tfootCount.textContent = keptN > 0
+      ? `共 ${n} 筆（含 🔒 漲停保留 ${keptN} 支）`
+      : `共 ${n} 筆`;
 
     if (!n) {
       tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;padding:40px;color:var(--muted)">無符合資料</td></tr>';
@@ -1125,12 +1132,15 @@
 
       // Highlight condition: 投信>=0 AND 月(YOY)>0
       const hl = (r['投信'] ?? 0) >= 0 && (r['月(YOY)'] ?? 0) > 0;
+      const isKept = !!r['漲停保留'];
 
       const cells = DISPLAY.map(col => {
         const val = r[col];
 
         if (col === '排序') {
-          return `<td class="td-rank">${val ?? '—'}</td>`;
+          return isKept
+            ? `<td class="td-rank" title="漲停鎖住保留（成交額已出百名外）"><span class="lock-badge">🔒</span></td>`
+            : `<td class="td-rank">${val ?? '—'}</td>`;
         }
         if (col === '代號') {
           const crown = (prevHistCodes.size > 0 && !prevHistCodes.has(String(val))) ? '<span class="crown">👑</span>' : '';
@@ -1164,7 +1174,7 @@
         return `<td>${val}</td>`;
       });
 
-      return `<tr>${watchCell}${kbarCell}${cells.join('')}</tr>`;
+      return `<tr class="${isKept ? 'limitup-kept' : ''}">${watchCell}${kbarCell}${cells.join('')}</tr>`;
     }).join('');
     // Watch button click handlers
     tbody.querySelectorAll('.btn-watch').forEach(btn => {
