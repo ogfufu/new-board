@@ -534,7 +534,7 @@
 <!-- Filter bar -->
 <div class="filter-bar">
   <span class="f-label">篩選條件</span>
-  <label class="f-item" id="fl-new" title="即時排行榜有出現但在對照排行榜沒出現的標的（需先複製對照排行榜）">
+  <label class="f-item" id="fl-new" title="即時排行榜有出現但在對照排行榜沒出現的標的（需先抓取對照排行榜）">
     <input type="checkbox" id="f-new-en"> 👑 新上榜
   </label>
   <label class="f-item" id="fl-change">
@@ -916,7 +916,7 @@
       if (!compareData.length) {
         fNewEn.checked = false;
         document.getElementById('fl-new').classList.remove('active');
-        setStatus('error', '❌ 新上榜篩選需要先複製對照排行榜');
+        setStatus('error', '❌ 新上榜篩選需要先抓取對照排行榜');
         return rows;
       }
       rows = rows.filter(r => !prevHistCodes.has(String(r['代號'])));
