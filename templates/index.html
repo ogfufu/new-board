@@ -508,6 +508,9 @@
     /* ── Sector card: variable slots & add-slot button ── */
     .btn-add-slot { background:none; border:1px dashed var(--border); color:var(--muted); border-radius:4px; font-size:12px; padding:3px 7px; cursor:pointer; flex-shrink:0; }
     .btn-add-slot:hover { border-color:var(--accent); color:var(--accent); }
+    .slot-wrap { display:flex; align-items:center; gap:2px; }
+    .btn-del-slot { background:none; border:none; color:var(--muted); font-size:12px; cursor:pointer; padding:0 2px; line-height:1; flex-shrink:0; }
+    .btn-del-slot:hover { color:var(--red); }
 
     /* Watchlist card: full grid width + wrapping code inputs */
     .watchlist-card { grid-column: 1 / -1; }
@@ -1827,10 +1830,12 @@
     card.className = 'sector-card' + (isWatch ? ' watchlist-card' : '');
     card.dataset.idx = idx;
 
-    const stockSlots = sector.stocks && sector.stocks.length > 0 ? sector.stocks : ['','','','',''];
+    const stockSlots = sector.stocks || [];
     const codesHTML = stockSlots.map((c, si) =>
-      `<input class="sector-code-input" placeholder="代號${si+1}" value="${(c||'').replace(/"/g,'&quot;')}" maxlength="6">`)
-      .join('') + `<button class="btn-add-slot" title="新增欄位">＋</button>`;
+      `<span class="slot-wrap">
+        <input class="sector-code-input" placeholder="代號" value="${(c||'').replace(/"/g,'&quot;')}" maxlength="6" data-si="${si}">
+        <button class="btn-del-slot" data-si="${si}" title="移除">✕</button>
+      </span>`).join('') + `<button class="btn-add-slot" title="手動新增欄位">＋</button>`;
 
     card.innerHTML = `
       <div class="sector-card-header">
@@ -1847,12 +1852,22 @@
       sectors[idx].name = e.target.value;
       saveSectors();
     });
-    card.querySelectorAll('.sector-code-input').forEach((inp, si) => {
+    card.querySelectorAll('.sector-code-input').forEach(inp => {
       inp.addEventListener('input', () => {
+        const si = parseInt(inp.dataset.si);
         sectors[idx].stocks[si] = inp.value.trim();
         saveSectors();
         renderSectorCard(card);
         renderTableDebounced(); // 同步更新主表 👁️
+      });
+    });
+    card.querySelectorAll('.btn-del-slot').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const si = parseInt(btn.dataset.si);
+        sectors[idx].stocks.splice(si, 1);
+        saveSectors();
+        renderSectorsGrid();
+        renderTable(); // 同步更新主表 👁️
       });
     });
     card.querySelector('.btn-add-slot').addEventListener('click', () => {
@@ -1888,7 +1903,7 @@
   });
 
   document.getElementById('btn-add-sector').addEventListener('click', () => {
-    sectors.push({ name: '', stocks: ['', '', '', '', ''] });
+    sectors.push({ name: '', stocks: [] });
     saveSectors();
     renderSectorsGrid();
   });
