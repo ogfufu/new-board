@@ -1722,14 +1722,16 @@
     return `<svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`;
   }
 
-  // Regular card: always 5 slots (pads empty)
+  // Regular card: dynamic length, only filled codes
   function buildStocksInfo(codeList) {
-    return Array.from({ length: 5 }, (_, i) => {
-      const c = (codeList[i] || '').trim();
-      if (!c) return { code: '', name: '', data: null };
-      const data = allData.find(r => r['代號'] === c) || null;
-      return { code: c, name: data ? data['名稱'] : '', data };
-    });
+    return codeList
+      .map(c => {
+        const code = (c || '').trim();
+        if (!code) return null;
+        const data = allData.find(r => r['代號'] === code) || null;
+        return { code, name: data ? data['名稱'] : '', data };
+      })
+      .filter(Boolean);
   }
 
   // Watchlist card: only filled codes
