@@ -80,14 +80,14 @@ GSHEET_COLS = ['排序','代號','名稱','市場','股價','漲跌幅','外資'
                '月(YOY)','月-1(YOY)','開盤','最高','最低','資金(億)','產業類型']
 
 def save_compare_to_gsheet(df, date_str):
-    """寫入 Google Sheet：第1列=日期，第2列=欄位名，第3列起=資料。"""
+    """寫入 Google Sheet：第1列=日期，第2列=欄位名，第3列起=資料（含🔒漲停保留）。"""
     ws = _get_gsheet()
     ws.clear()
     # 第1列：日期
     ws.update('A1', [[f'更新日期:{date_str}']])
     # 第2列：欄位名稱
     ws.update('A2', [GSHEET_COLS])
-    # 第3列起：資料
+    # 第3列起：全部資料（含🔒）
     rows = []
     for _, r in df.iterrows():
         rows.append([str(r.get(c, '') or '') for c in GSHEET_COLS])
@@ -217,10 +217,16 @@ def init_db():
 
 
 def save_crown_ref(df):
-    """Replace the crown reference with current data."""
+    """Replace the crown reference with current data（含🔒漲停保留，排序存0）。"""
     con = sqlite3.connect(DB_PATH)
     con.execute('DELETE FROM crown_ref')
-    rows = [(str(r['代號']), r['名稱'], int(r['排序'])) for _, r in df.iterrows()]
+    rows = []
+    for _, r in df.iterrows():
+        try:
+            rank = int(r['排序'])
+        except (ValueError, TypeError):
+            rank = 0  # 🔒 漲停保留列存排序 0
+        rows.append((str(r['代號']), r['名稱'], rank))
     con.executemany('INSERT INTO crown_ref VALUES (?,?,?)', rows)
     con.commit()
     con.close()
@@ -326,10 +332,15 @@ def save_snapshot(df, date_str, overwrite=False):
     if exists and overwrite:
         con.execute('DELETE FROM snapshots WHERE date=?', (date_str,))
 
-    rows = [
-        (
+    rows = []
+    for _, r in df.iterrows():
+        try:
+            rank = int(r['排序'])
+        except (ValueError, TypeError):
+            rank = 0  # 🔒 漲停保留列存排序 0
+        rows.append((
             date_str,
-            int(r['排序']),
+            rank,
             str(r['代號']),
             r['名稱'],
             r.get('市場'),
@@ -344,9 +355,7 @@ def save_snapshot(df, date_str, overwrite=False):
             r['最低'],
             r['資金(億)'],
             r['產業類型'],
-        )
-        for _, r in df.iterrows()
-    ]
+        ))
     con.executemany(
         '''INSERT OR REPLACE INTO snapshots
            (date,rank,code,name,market,price,change_pct,trust,foreign_inv,
