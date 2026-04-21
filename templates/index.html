@@ -592,6 +592,12 @@
     <input type="checkbox" id="f-gap-en"> 跳空 ≥
     <input type="number" id="f-gap-val" value="2.5" step="0.1"> %
   </label>
+  <label class="f-item" id="fl-redk" title="收盤價 > 開盤價">
+    <input type="checkbox" id="f-redk-en"> 🕯️ 紅K
+  </label>
+  <label class="f-item" id="fl-greenk" title="收盤價 < 開盤價">
+    <input type="checkbox" id="f-greenk-en"> 🕯️ 綠K
+  </label>
 </div>
 
 <!-- History bar (moved above table) -->
@@ -857,6 +863,8 @@
   const fYoy1Val   = document.getElementById('f-yoy1-val');
   const fGapEn     = document.getElementById('f-gap-en');
   const fGapVal    = document.getElementById('f-gap-val');
+  const fRedKEn    = document.getElementById('f-redk-en');
+  const fGreenKEn  = document.getElementById('f-greenk-en');
 
   // ── Mini K-bar SVG ──
   function kbarSVG(open, high, low, close, H = 28) {
@@ -954,6 +962,8 @@
       const t = parseFloat(fGapVal.value);
       if (!isNaN(t)) rows = rows.filter(r => calcGapPct(r) >= t);
     }
+    if (fRedKEn.checked)   rows = rows.filter(r => (r['股價'] ?? 0) > (r['開盤'] ?? 0));
+    if (fGreenKEn.checked) rows = rows.filter(r => (r['股價'] ?? 0) < (r['開盤'] ?? 0));
     if (fNewEn.checked) {
       // 新上榜：即時排行榜有出現，但對照排行榜沒有出現的標的
       if (!compareData.length) {
@@ -1417,8 +1427,8 @@
   });
   intervalSel.addEventListener('change', () => { countdown = +intervalSel.value; countdownEl.textContent = countdown; });
 
-  [fChangeEn, fForeignEn, fItufEn, fYoyEn, fYoy1En, fGapEn].forEach((cb, i) => {
-    const ids = ['fl-change','fl-foreign','fl-ituf','fl-yoy','fl-yoy1','fl-gap'];
+  [fChangeEn, fForeignEn, fItufEn, fYoyEn, fYoy1En, fGapEn, fRedKEn, fGreenKEn].forEach((cb, i) => {
+    const ids = ['fl-change','fl-foreign','fl-ituf','fl-yoy','fl-yoy1','fl-gap','fl-redk','fl-greenk'];
     cb.addEventListener('change', () => {
       document.getElementById(ids[i]).classList.toggle('active', cb.checked);
       renderTable();
