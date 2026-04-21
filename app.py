@@ -108,15 +108,47 @@ def _wiki_cache_ws():
 
 # ── 建立索引：抓 MoneyDJ wiki 列表所有頁 ──
 def build_wiki_index_from_moneydj():
-    """Scrape 19 pages of MoneyDJ wiki list. Returns list of [name, url]."""
+    """Scrape all pages of MoneyDJ wiki list using a persistent session (for cookies).
+    Returns list of [name, url].
+    """
+    import time
     base = 'https://www.moneydj.com/kmdj/wiki/wikisubjectlist.aspx'
+
+    # 使用 Session 維持 ASP.NET 的 session cookie
+    sess = requests.Session()
+    sess.headers.update({
+        **HEADERS,
+        'Referer': 'https://www.moneydj.com/kmdj/wiki/wikiList.djhtm',
+    })
+
+    # 先打首頁取得 session cookie，並讀取總頁數
+    total_pages = 19  # 預設值
+    try:
+        r0 = sess.get(base + '?op=1', timeout=20)
+        r0.raise_for_status()
+        soup0 = BeautifulSoup(r0.text, 'html.parser')
+        # 找分頁連結中最大的 index1 值
+        max_idx = 0
+        for a in soup0.find_all('a', href=True):
+            m = re.search(r'index1=(\d+)', a['href'])
+            if m:
+                max_idx = max(max_idx, int(m.group(1)))
+        if max_idx > 0:
+            total_pages = max_idx + 1
+        print(f'[wiki-index] total pages detected: {total_pages}', flush=True)
+    except Exception as e:
+        print(f'[wiki-index] init request failed: {e}', flush=True)
+
     entries = []
-    for page in range(0, 19):
+    seen_urls = set()   # 去除重複
+
+    for page in range(0, total_pages):
         url = f'{base}?op=1' if page == 0 else f'{base}?index1={page}&op=1'
         try:
-            r = requests.get(url, headers=HEADERS, timeout=20)
+            r = sess.get(url, timeout=20)
             r.raise_for_status()
             soup = BeautifulSoup(r.text, 'html.parser')
+            count = 0
             for a in soup.find_all('a', href=True):
                 href = a['href']
                 if 'wikiviewer.aspx?keyid=' in href:
@@ -124,9 +156,15 @@ def build_wiki_index_from_moneydj():
                     if name and len(name) > 2:
                         full_url = (href if href.startswith('http')
                                     else 'https://www.moneydj.com' + href)
-                        entries.append([name, full_url])
+                        if full_url not in seen_urls:
+                            seen_urls.add(full_url)
+                            entries.append([name, full_url])
+                            count += 1
+            print(f'[wiki-index] page {page}: +{count} entries (total {len(entries)})', flush=True)
         except Exception as e:
-            print(f'[wiki-index] page {page}: {e}', flush=True)
+            print(f'[wiki-index] page {page} error: {e}', flush=True)
+        time.sleep(0.5)   # 避免對伺服器造成過大壓力
+
     return entries
 
 
