@@ -518,6 +518,9 @@
     /* ── Sector card: variable slots & add-slot button ── */
     .btn-add-slot { background:none; border:1px dashed var(--border); color:var(--muted); border-radius:4px; font-size:12px; padding:3px 7px; cursor:pointer; flex-shrink:0; }
     .btn-add-slot:hover { border-color:var(--accent); color:var(--accent); }
+    /* 清單排行榜可見性切換 */
+    .btn-sector-vis { background:none; border:none; cursor:pointer; font-size:13px; padding:0 3px; line-height:1; opacity:1; transition:opacity .2s, filter .2s; flex-shrink:0; }
+    .btn-sector-vis.vis-hidden { opacity:0.25; filter:grayscale(1); }
     .slot-wrap { display:flex; align-items:center; gap:2px; }
     .btn-del-slot { background:none; border:none; color:var(--muted); font-size:12px; cursor:pointer; padding:0 2px; line-height:1; flex-shrink:0; }
     .btn-del-slot:hover { color:var(--red); }
@@ -1573,6 +1576,7 @@
   function getWatchedCodes() {
     const s = new Set();
     sectors.forEach(sec => {
+      if (sec.hidden) return; // 隱藏中的清單不計入排行榜 👁️
       (sec.stocks || []).forEach(code => {
         if (code && code.trim()) s.add(code.trim());
       });
@@ -1878,8 +1882,10 @@
         <button class="btn-del-slot" data-si="${si}" title="移除">✕</button>
       </span>`).join('') + `<button class="btn-add-slot" title="手動新增欄位">＋</button>`;
 
+    const visHidden = !!sector.hidden;
     card.innerHTML = `
       <div class="sector-card-header">
+        <button class="btn-sector-vis${visHidden ? ' vis-hidden' : ''}" title="${visHidden ? '點擊：在排行榜顯示此清單的眼睛圖示' : '點擊：隱藏此清單在排行榜的眼睛圖示'}">👁️</button>
         <span class="drag-handle" title="拖曳排序">⠿</span>
         <input class="sector-name-input" placeholder="${isWatch ? '觀察清單' : '類股名稱'}" value="${(sector.name||'').replace(/"/g,'&quot;')}">
         <button class="btn-del-sector" title="刪除">✕</button>
@@ -1889,6 +1895,12 @@
       </div>
       <div class="sector-chart"></div>`;
 
+    card.querySelector('.btn-sector-vis').addEventListener('click', () => {
+      sectors[idx].hidden = !sectors[idx].hidden;
+      saveSectors();
+      renderSectorsGrid();
+      renderTable();
+    });
     card.querySelector('.sector-name-input').addEventListener('input', e => {
       sectors[idx].name = e.target.value;
       saveSectors();
