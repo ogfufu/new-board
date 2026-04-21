@@ -527,23 +527,6 @@
     .btn-watch:hover { color: var(--accent); }
     .btn-watch.watched { color: #58a6ff; cursor: default; }
 
-    /* ── Wiki modal ── */
-    #wiki-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:9100; align-items:center; justify-content:center; }
-    #wiki-modal.open { display:flex; }
-    .wiki-box { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:22px 26px 18px; width:480px; max-width:94vw; max-height:80vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,.5); }
-    .wiki-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
-    .wiki-title { font-size:15px; font-weight:700; color:var(--fg); }
-    .wiki-close { background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; line-height:1; padding:0 2px; }
-    .wiki-close:hover { color:var(--fg); }
-    .wiki-field { margin-bottom:12px; }
-    .wiki-field-label { font-size:10px; font-weight:700; color:var(--accent); letter-spacing:.6px; text-transform:uppercase; margin-bottom:4px; }
-    .wiki-field-val { font-size:12px; color:var(--fg); line-height:1.6; white-space:pre-wrap; }
-    .wiki-meta { font-size:10px; color:var(--muted); margin-top:14px; padding-top:10px; border-top:1px solid var(--border); }
-    .wiki-loading { text-align:center; padding:32px 0; color:var(--muted); font-size:13px; }
-    .wiki-error { color:#f85149; font-size:12px; padding:12px 0; }
-    .btn-wiki { background:none; border:none; cursor:pointer; font-size:13px; padding:0 2px; line-height:1; opacity:.6; transition:opacity .15s; }
-    .btn-wiki:hover { opacity:1; }
-
     /* ── Sector-pick modal ── */
     #sector-pick-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:9000; align-items:center; justify-content:center; }
     #sector-pick-modal.open { display:flex; }
@@ -601,7 +584,6 @@
   <div class="spacer"></div>
   <button class="btn btn-watch"   id="btn-watch"   title="將篩選結果加入類股K棒觀察">👁 列入觀察</button>
   <button class="btn btn-compare" id="btn-compare" title="將當前排行榜寫入 Google Sheets 對照表">📋 複製到對照排行榜</button>
-  <button class="btn btn-gsheet"  id="btn-wiki-build" title="掃描 MoneyDJ 所有公司列表並存入 Google Sheets（首次使用前執行）">🗂 建立Wiki索引</button>
   <div class="row-count">顯示 <span id="row-count">0</span> 筆</div>
 </div>
 
@@ -753,19 +735,6 @@
     <span class="sectors-hint">資料來源：即時排行榜（需先載入資料）</span>
   </div>
   <div class="sectors-grid" id="sectors-grid"></div>
-</div>
-
-<!-- Wiki profile modal -->
-<div id="wiki-modal">
-  <div class="wiki-box">
-    <div class="wiki-header">
-      <span class="wiki-title" id="wiki-modal-title">公司資訊</span>
-      <button class="wiki-close" id="wiki-modal-close">✕</button>
-    </div>
-    <div id="wiki-modal-body">
-      <div class="wiki-loading">載入中…</div>
-    </div>
-  </div>
 </div>
 
 <!-- Sector pick modal -->
@@ -1218,10 +1187,7 @@
         if (col === '市場')    return `<td class="td-market" style="font-size:11px;color:var(--muted)">${val ?? '—'}</td>`;
         if (col === '產業類型') {
           const zq = getZuqun(r['代號'], val);
-          const codeEsc = String(r['代號']).replace(/"/g, '&quot;');
-          const nameEsc = String(r['名稱'] || '').replace(/"/g, '&quot;');
-          return `<td class="td-industry" title="${val ?? ''}">` +
-            `${zq}<button class="btn-wiki" data-code="${codeEsc}" data-name="${nameEsc}" title="查詢公司資訊">🔍</button></td>`;
+          return `<td class="td-industry" title="${val ?? ''}">${zq}</td>`;
         }
 
         if (val === null || val === undefined) return `<td class="zero">—</td>`;
@@ -1255,13 +1221,6 @@
         } else {
           openSectorPick(btn.dataset.code);
         }
-      });
-    });
-    // Wiki 🔍 button handlers
-    tbody.querySelectorAll('.btn-wiki').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        openWikiModal(btn.dataset.code, btn.dataset.name);
       });
     });
     renderOverviewChart();
@@ -2056,76 +2015,6 @@
   });
 
   window.addEventListener('resize', renderOverviewChart);
-
-  // ── Init ──
-  // ── Wiki modal ──
-  const wikiModal     = document.getElementById('wiki-modal');
-  const wikiModalBody = document.getElementById('wiki-modal-body');
-  const wikiModalTitle = document.getElementById('wiki-modal-title');
-
-  document.getElementById('wiki-modal-close').addEventListener('click', () => {
-    wikiModal.classList.remove('open');
-  });
-  wikiModal.addEventListener('click', e => {
-    if (e.target === wikiModal) wikiModal.classList.remove('open');
-  });
-
-  async function openWikiModal(code, name) {
-    wikiModalTitle.textContent = `${code} ${name}`;
-    wikiModalBody.innerHTML = '<div class="wiki-loading">查詢中，請稍候…</div>';
-    wikiModal.classList.add('open');
-    try {
-      const res  = await fetch('/api/stock-wiki', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, name }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        wikiModalBody.innerHTML = `<div class="wiki-error">❌ ${json.error}</div>`;
-        return;
-      }
-      const d = json.data;
-      const fields = [
-        { label: '產業', key: '產業' },
-        { label: '營收分布', key: '營收分布' },
-        { label: '核心產品', key: '核心產品' },
-        { label: '主要客戶', key: '主要客戶' },
-      ];
-      const source = json.source === 'cache' ? '（來自快取）' : '（剛抓取）';
-      wikiModalBody.innerHTML =
-        fields.map(f =>
-          `<div class="wiki-field">
-            <div class="wiki-field-label">${f.label}</div>
-            <div class="wiki-field-val">${d[f.key] || '—'}</div>
-          </div>`
-        ).join('') +
-        `<div class="wiki-meta">📅 抓取日期：${d['抓取日期'] || '—'} ${source}</div>`;
-    } catch (e) {
-      wikiModalBody.innerHTML = `<div class="wiki-error">❌ 網路錯誤：${e.message}</div>`;
-    }
-  }
-
-  // ── 建立Wiki索引 button ──
-  document.getElementById('btn-wiki-build').addEventListener('click', async () => {
-    const btn = document.getElementById('btn-wiki-build');
-    if (!confirm('將掃描 MoneyDJ wiki 所有頁面（約 19 頁），需要 30~60 秒，確認執行？')) return;
-    btn.disabled = true;
-    btn.textContent = '建立中…';
-    try {
-      const res  = await fetch('/api/wiki-index/build', { method: 'POST' });
-      const json = await res.json();
-      if (json.success) {
-        setStatus('', `✅ Wiki 索引建立完成，共 ${json.count} 家公司`);
-      } else {
-        setStatus('error', `❌ 建立失敗：${json.error}`);
-      }
-    } catch (e) {
-      setStatus('error', `❌ 網路錯誤：${e.message}`);
-    }
-    btn.disabled = false;
-    btn.textContent = '🗂 建立Wiki索引';
-  });
 
   // ── Overview collapse toggle ──
   (function() {
