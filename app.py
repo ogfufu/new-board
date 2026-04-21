@@ -865,34 +865,6 @@ def api_stocks():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/sector-prices', methods=['POST'])
-def api_sector_prices():
-    """Fetch real-time OHLC for arbitrary codes (used by sector K-bar cards)."""
-    body = request.get_json()
-    if not body or 'codes' not in body:
-        return jsonify({'success': False, 'error': 'invalid body'}), 400
-    codes = [str(c).strip() for c in body['codes'] if c and str(c).strip()]
-    if not codes:
-        return jsonify({'success': True, 'data': {}})
-    # Determine market (上市/上櫃) for each code
-    codes_markets = [(c, get_stock_market(c)) for c in codes]
-    # Batch-fetch from TWSE unified API
-    raw = get_twse_realtime(codes_markets)
-    # Convert to allData-compatible format
-    output = {}
-    for code, info in raw.items():
-        output[code] = {
-            '代號':   code,
-            '名稱':   info.get('name', code),
-            '股價':   info.get('price'),
-            '漲跌幅': info.get('change_pct'),
-            '開盤':   info.get('open'),
-            '最高':   info.get('high'),
-            '最低':   info.get('low'),
-        }
-    return jsonify({'success': True, 'data': output})
-
-
 @app.route('/api/history')
 def api_history():
     """Return available dates, or snapshot for a specific date."""

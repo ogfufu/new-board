@@ -741,10 +741,6 @@
   let countdown = 300;
   let tickerHandle = null;
 
-  // 類股K棒：不在即時排行榜的標的額外價格快取 (code → allData-格式 record)
-  let sectorExtraData  = {};
-  let _sectorPriceFetchTimer = null;
-
   const SIGN_COLS = new Set(['漲跌幅', '外資', '投信', '月(YOY)', '月-1(YOY)']);
   const NUM_COLS  = new Set(['股價', '漲跌幅', '開盤', '資金(億)']);
 
@@ -895,8 +891,6 @@
 
       liveData = json.data;   // 永遠保留即時資料
       if (viewMode === 'live') allData = liveData;
-      // 清除已回到排行榜的代號的 extra cache（改用排行榜即時資料）
-      json.data.forEach(r => { delete sectorExtraData[r['代號']]; });
       currentTradingDate = json.date;   // last trading day from server
       lastUpdated.textContent = json.updated_at;
 
@@ -907,7 +901,6 @@
       prevRanks = newRanks;
       loadCompareStatus();
       loadCrownRef();
-      scheduleSectorPriceFetch(); // 補抓不在排行榜的類股代號即時價格
     } catch (e) {
       setStatus('error', '❌ 抓取失敗：' + e.message);
     }
@@ -1671,7 +1664,6 @@
   async function loadSectors() {
     // 先用 localStorage 立即顯示（不阻塞排行榜）
     renderSectorsGrid();
-    scheduleSectorPriceFetch(); // 補抓不在排行榜的類股代號
     // 記錄 fetch 前快照，避免覆蓋使用者在等待期間的修改
     const snapshotBeforeFetch = JSON.stringify(sectors);
     try {
@@ -1686,7 +1678,6 @@
           localStorage.setItem('rack_sectors', JSON.stringify(sectors));
           renderSectorsGrid();
           renderTable();
-          scheduleSectorPriceFetch(); // 伺服器資料可能有新的代號
         }
       }
     } catch {}
@@ -1746,13 +1737,12 @@
   }
 
   // Regular card: dynamic length, only filled codes
-  // Falls back to sectorExtraData for codes not in current ranking
   function buildStocksInfo(codeList) {
     return codeList
       .map(c => {
         const code = (c || '').trim();
         if (!code) return null;
-        const data = allData.find(r => r['代號'] === code) || sectorExtraData[code] || null;
+        const data = allData.find(r => r['代號'] === code) || null;
         return { code, name: data ? data['名稱'] : '', data };
       })
       .filter(Boolean);
@@ -1762,41 +1752,9 @@
   function buildWatchStocksInfo(codeList) {
     return codeList.filter(c => c?.trim()).map(c => {
       const code = c.trim();
-      const data = allData.find(r => r['代號'] === code) || sectorExtraData[code] || null;
+      const data = allData.find(r => r['代號'] === code) || null;
       return { code, name: data ? data['名稱'] : '', data };
     });
-  }
-
-  // 抓取不在排行榜的類股代號的即時價格
-  async function fetchSectorPrices() {
-    // Collect all unique codes across all sectors
-    const allSectorCodes = new Set();
-    sectors.forEach(sec => {
-      (sec.stocks || []).forEach(c => { if (c && c.trim()) allSectorCodes.add(c.trim()); });
-    });
-    // Filter to codes NOT in current allData
-    const missing = [...allSectorCodes].filter(c => !allData.find(r => r['代號'] === c));
-    if (!missing.length) return;
-    try {
-      const res  = await fetch('/api/sector-prices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codes: missing }),
-      });
-      const json = await res.json();
-      if (json.success && json.data) {
-        sectorExtraData = { ...sectorExtraData, ...json.data };
-        renderAllSectorCharts(); // 重繪，讓 N/A 變成 K 棒
-      }
-    } catch (e) {
-      console.warn('[sector-prices] fetch failed:', e);
-    }
-  }
-
-  // Debounced trigger（避免快速變動時重複 fetch）
-  function scheduleSectorPriceFetch() {
-    clearTimeout(_sectorPriceFetchTimer);
-    _sectorPriceFetchTimer = setTimeout(fetchSectorPrices, 600);
   }
 
   function renderSectorCard(cardEl) {
