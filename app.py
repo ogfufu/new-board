@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import json
 import sqlite3
 import threading
@@ -10,6 +11,7 @@ import pandas as pd
 import requests
 import twstock
 import gspread
+from bs4 import BeautifulSoup
 from google.oauth2.service_account import Credentials
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -74,6 +76,179 @@ def get_sectors_from_gsheet():
     except Exception:
         pass
     return None
+
+
+# ---------- Wiki index / cache (Sheet3 / Sheet4) ----------
+
+def _get_google_creds():
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
+    if creds_json:
+        info = json.loads(creds_json)
+        return Credentials.from_service_account_info(info, scopes=GSHEET_SCOPES)
+    if os.path.exists(_CREDS_FILE):
+        return Credentials.from_service_account_file(_CREDS_FILE, scopes=GSHEET_SCOPES)
+    raise RuntimeError('找不到 Google 憑證')
+
+
+def _get_or_create_ws(index, title, rows=600, cols=6):
+    gc = gspread.authorize(_get_google_creds())
+    wb = gc.open_by_key(GSHEET_ID)
+    sheets = wb.worksheets()
+    if len(sheets) > index:
+        return sheets[index]
+    return wb.add_worksheet(title=title, rows=rows, cols=cols)
+
+
+def _wiki_index_ws():
+    return _get_or_create_ws(2, 'wiki_index', rows=600, cols=2)
+
+def _wiki_cache_ws():
+    return _get_or_create_ws(3, 'wiki_cache', rows=600, cols=6)
+
+
+# ── 建立索引：抓 MoneyDJ wiki 列表所有頁 ──
+def build_wiki_index_from_moneydj():
+    """Scrape 19 pages of MoneyDJ wiki list. Returns list of [name, url]."""
+    base = 'https://www.moneydj.com/kmdj/wiki/wikisubjectlist.aspx'
+    entries = []
+    for page in range(0, 19):
+        url = f'{base}?op=1' if page == 0 else f'{base}?index1={page}&op=1'
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=20)
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, 'html.parser')
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if 'wikiviewer.aspx?keyid=' in href:
+                    name = a.get_text(strip=True)
+                    if name and len(name) > 2:
+                        full_url = (href if href.startswith('http')
+                                    else 'https://www.moneydj.com' + href)
+                        entries.append([name, full_url])
+        except Exception as e:
+            print(f'[wiki-index] page {page}: {e}', flush=True)
+    return entries
+
+
+def save_wiki_index(entries):
+    ws = _wiki_index_ws()
+    ws.clear()
+    ws.update('A1', [['公司全名', 'wiki_url']])
+    if entries:
+        ws.update('A2', entries)
+
+
+def get_wiki_index():
+    """Returns dict: full_name → wiki_url"""
+    try:
+        ws = _wiki_index_ws()
+        rows = ws.get_all_values()
+        return {r[0]: r[1] for r in rows[1:] if len(r) >= 2 and r[0] and r[1]}
+    except Exception:
+        return {}
+
+
+def find_wiki_url(stock_name, index_dict):
+    """Match stock short name to full company name (exact → partial)."""
+    for full, url in index_dict.items():
+        if stock_name == full:
+            return url
+    for full, url in index_dict.items():
+        if stock_name in full:
+            return url
+    return None
+
+
+# ── 抓取 wiki 頁面並解析四欄 ──
+def fetch_wiki_profile(wiki_url):
+    """Fetch MoneyDJ wiki page, extract 4 fields. Returns dict or None."""
+    try:
+        r = requests.get(wiki_url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, 'html.parser')
+
+        # 嘗試找主要內容 div
+        content = (
+            soup.find('div', class_=lambda c: c and 'content' in c.lower()) or
+            soup.find('td', id=lambda i: i and 'content' in (i or '').lower()) or
+            soup.body
+        )
+        text = (content or soup.body).get_text(separator='\n', strip=True)
+        lines = [l.strip() for l in text.split('\n') if l.strip() and len(l.strip()) > 2]
+
+        def extract_after(keywords, max_chars=350):
+            for i, line in enumerate(lines):
+                if any(kw in line for kw in keywords):
+                    parts = []
+                    for j in range(i + 1, min(i + 30, len(lines))):
+                        l = lines[j]
+                        # 遇到下一個段落標題則停止
+                        if re.match(r'^[（(]?[一二三四五六七八九十\d]+[）)\.、]', l) and len(l) < 40:
+                            if parts:
+                                break
+                        parts.append(l)
+                        if sum(len(p) for p in parts) >= max_chars:
+                            break
+                    result = '　'.join(parts)
+                    return result[:max_chars] if result else ''
+            return ''
+
+        return {
+            '產業':   extract_after(['產業特性', '產業概況', '行業概述', '沿革', '成立']) or '—',
+            '營收分布': extract_after(['營收比重', '營業比重', '業務比重', '產品比重', '銷售比重', '業務結構', '主要業務']) or '—',
+            '核心產品': extract_after(['產品與技術', '主要產品', '核心產品', '產品簡介', '技術簡介', '產品項目']) or '—',
+            '主要客戶': extract_after(['主要客戶', '客戶結構', '銷售對象', '重要客戶']) or '—',
+        }
+    except Exception as e:
+        print(f'[wiki-profile] {wiki_url}: {e}', flush=True)
+        return None
+
+
+# ── Sheet4 快取讀寫 ──
+def get_wiki_cache():
+    """Returns dict: code → {產業, 營收分布, 核心產品, 主要客戶, 抓取日期}"""
+    try:
+        ws = _wiki_cache_ws()
+        rows = ws.get_all_values()
+        if len(rows) < 2:
+            return {}
+        headers = rows[0]
+        return {row[0]: dict(zip(headers, row)) for row in rows[1:] if row and row[0]}
+    except Exception:
+        return {}
+
+
+def save_wiki_profile_to_cache(code, profile):
+    """Upsert one stock's profile in Sheet4."""
+    try:
+        ws = _wiki_cache_ws()
+        rows = ws.get_all_values()
+        today = date.today().isoformat()
+        new_row = [
+            code,
+            profile.get('產業', ''),
+            profile.get('營收分布', ''),
+            profile.get('核心產品', ''),
+            profile.get('主要客戶', ''),
+            today,
+        ]
+        header = ['代號', '產業', '營收分布', '核心產品', '主要客戶', '抓取日期']
+        if not rows:
+            ws.update('A1', [header])
+            ws.append_row(new_row)
+            return
+        # 確保有標頭
+        if rows[0][0] != '代號':
+            ws.insert_row(header, 1)
+            rows = [header] + rows
+        # 找既有列並更新
+        for i, row in enumerate(rows[1:], start=2):
+            if row and row[0] == code:
+                ws.update(f'A{i}', [new_row])
+                return
+        ws.append_row(new_row)
+    except Exception as e:
+        print(f'[wiki-cache] save error: {e}', flush=True)
 
 
 GSHEET_COLS = ['排序','代號','名稱','市場','股價','漲跌幅','外資','投信',
@@ -863,6 +1038,51 @@ def api_stocks():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/wiki-index/build', methods=['POST'])
+def api_build_wiki_index():
+    """掃描 MoneyDJ wiki 列表所有頁（19頁）並存入 Sheet3。"""
+    try:
+        entries = build_wiki_index_from_moneydj()
+        save_wiki_index(entries)
+        return jsonify({'success': True, 'count': len(entries)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/stock-wiki', methods=['POST'])
+def api_stock_wiki():
+    """查詢個股 wiki 摘要。先查 Sheet4 快取，沒有則從 MoneyDJ 抓取後存入 Sheet4。"""
+    body = request.get_json()
+    code = str(body.get('code', '')).strip()
+    name = str(body.get('name', '')).strip()
+    if not code or not name:
+        return jsonify({'success': False, 'error': 'missing code or name'}), 400
+
+    # 1. 查 Sheet4 快取
+    cache = get_wiki_cache()
+    if code in cache:
+        return jsonify({'success': True, 'data': cache[code], 'source': 'cache'})
+
+    # 2. 在 Sheet3 索引中找 wiki URL
+    index = get_wiki_index()
+    if not index:
+        return jsonify({'success': False, 'error': '索引尚未建立，請先按「建立Wiki索引」'}), 404
+    wiki_url = find_wiki_url(name, index)
+    if not wiki_url:
+        return jsonify({'success': False, 'error': f'找不到「{name}」，可能尚未收錄於 MoneyDJ'}), 404
+
+    # 3. 抓取並解析 wiki 頁面
+    profile = fetch_wiki_profile(wiki_url)
+    if not profile:
+        return jsonify({'success': False, 'error': '無法解析 wiki 頁面'}), 500
+
+    # 4. 存入 Sheet4
+    save_wiki_profile_to_cache(code, profile)
+    profile['代號'] = code
+    profile['抓取日期'] = date.today().isoformat()
+    return jsonify({'success': True, 'data': profile, 'source': 'fetched'})
 
 
 @app.route('/api/history')
