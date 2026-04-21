@@ -169,32 +169,70 @@ def build_wiki_index_from_moneydj():
 
 
 def save_wiki_index(entries):
+    """Save wiki index to Sheet3. entries = [[name, url], ...]"""
     ws = _wiki_index_ws()
     ws.clear()
-    ws.update('A1', [['公司全名', 'wiki_url']])
+    ws.update('A1', [['公司全名', 'wiki_url', '代號']])
     if entries:
-        ws.update('A2', entries)
+        # pad each entry with empty 代號 if not present
+        padded = [e if len(e) >= 3 else e + [''] for e in entries]
+        ws.update('A2', padded)
 
 
 def get_wiki_index():
-    """Returns dict: full_name → wiki_url"""
+    """Returns (rows, by_code, by_name)
+    rows     : list of [name, url, code] (all rows, 0-indexed from row 2)
+    by_code  : dict code → (row_number_1indexed, url)
+    by_name  : dict full_name → (row_number_1indexed, url)
+    """
     try:
         ws = _wiki_index_ws()
-        rows = ws.get_all_values()
-        return {r[0]: r[1] for r in rows[1:] if len(r) >= 2 and r[0] and r[1]}
+        all_rows = ws.get_all_values()
+        data_rows = all_rows[1:]  # skip header
+        by_code = {}
+        by_name = {}
+        for i, r in enumerate(data_rows):
+            if len(r) < 2 or not r[1]:
+                continue
+            row_num = i + 2   # 1-indexed sheet row (header is row 1)
+            name = r[0]
+            url  = r[1]
+            code = r[2].strip() if len(r) > 2 else ''
+            if code:
+                by_code[code] = (row_num, url)
+            if name:
+                by_name[name] = (row_num, url)
+        return all_rows, by_code, by_name
     except Exception:
-        return {}
+        return [], {}, {}
 
 
-def find_wiki_url(stock_name, index_dict):
-    """Match stock short name to full company name (exact → partial)."""
-    for full, url in index_dict.items():
-        if stock_name == full:
-            return url
-    for full, url in index_dict.items():
+def update_wiki_index_code(row_num, code):
+    """Write code into column C of wiki_index for the given row."""
+    try:
+        ws = _wiki_index_ws()
+        ws.update(f'C{row_num}', [[code]])
+    except Exception as e:
+        print(f'[wiki-index] update code error: {e}', flush=True)
+
+
+def find_wiki_entry_by_name(stock_name, by_name):
+    """Fallback name matching: exact → substring → subsequence.
+    Returns (row_num, url) or (None, None).
+    """
+    # 1. Exact
+    if stock_name in by_name:
+        return by_name[stock_name]
+    # 2. Substring
+    for full, (row_num, url) in by_name.items():
         if stock_name in full:
-            return url
-    return None
+            return row_num, url
+    # 3. Subsequence（簡稱各字依序出現在全名中，例如「台積電」→「台灣積體電路製造…」）
+    for full, (row_num, url) in by_name.items():
+        it = iter(full)
+        if all(c in it for c in stock_name):
+            return row_num, url
+    return None, None
 
 
 # ── 抓取 wiki 頁面並解析四欄 ──
@@ -1091,32 +1129,44 @@ def api_build_wiki_index():
 
 @app.route('/api/stock-wiki', methods=['POST'])
 def api_stock_wiki():
-    """查詢個股 wiki 摘要。先查 Sheet4 快取，沒有則從 MoneyDJ 抓取後存入 Sheet4。"""
+    """查詢個股 wiki 摘要。
+    查詢順序：Sheet4快取(代號) → Sheet3索引(代號欄) → Sheet3索引(名稱比對) → MoneyDJ抓取
+    """
     body = request.get_json()
     code = str(body.get('code', '')).strip()
     name = str(body.get('name', '')).strip()
     if not code or not name:
         return jsonify({'success': False, 'error': 'missing code or name'}), 400
 
-    # 1. 查 Sheet4 快取
+    # 1. 查 Sheet4 快取（代號直接對應）
     cache = get_wiki_cache()
     if code in cache:
         return jsonify({'success': True, 'data': cache[code], 'source': 'cache'})
 
-    # 2. 在 Sheet3 索引中找 wiki URL
-    index = get_wiki_index()
-    if not index:
+    # 2. 從 Sheet3 索引查詢
+    _, by_code, by_name = get_wiki_index()
+    if not by_code and not by_name:
         return jsonify({'success': False, 'error': '索引尚未建立，請先按「建立Wiki索引」'}), 404
-    wiki_url = find_wiki_url(name, index)
+
+    # 2a. 優先用代號查
+    row_num, wiki_url = None, None
+    if code in by_code:
+        row_num, wiki_url = by_code[code]
+    else:
+        # 2b. 代號欄空白 → 用名稱比對（fallback），找到後回寫代號
+        row_num, wiki_url = find_wiki_entry_by_name(name, by_name)
+        if row_num:
+            update_wiki_index_code(row_num, code)   # 回寫代號，下次直接用代號查
+
     if not wiki_url:
-        return jsonify({'success': False, 'error': f'找不到「{name}」，可能尚未收錄於 MoneyDJ'}), 404
+        return jsonify({'success': False, 'error': f'在索引中找不到「{name}({code})」，可能尚未收錄於 MoneyDJ'}), 404
 
     # 3. 抓取並解析 wiki 頁面
     profile = fetch_wiki_profile(wiki_url)
     if not profile:
         return jsonify({'success': False, 'error': '無法解析 wiki 頁面'}), 500
 
-    # 4. 存入 Sheet4
+    # 4. 存入 Sheet4 快取
     save_wiki_profile_to_cache(code, profile)
     profile['代號'] = code
     profile['抓取日期'] = date.today().isoformat()
