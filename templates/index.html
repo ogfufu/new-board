@@ -162,7 +162,30 @@
       text-transform: uppercase;
     }
     .overview-count { font-size: 11px; color: var(--muted); }
-    #overview-svg-wrap { line-height: 0; }
+    #overview-svg-wrap {
+      line-height: 0;
+      overflow: hidden;
+      transition: max-height .25s ease, opacity .25s ease;
+      max-height: 600px;
+      opacity: 1;
+    }
+    .overview-wrap.collapsed #overview-svg-wrap {
+      max-height: 0;
+      opacity: 0;
+    }
+    .overview-wrap.collapsed .overview-header { margin-bottom: 0; }
+    .btn-overview-collapse {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 0 2px;
+      line-height: 1;
+      transition: transform .2s;
+      flex-shrink: 0;
+    }
+    .overview-wrap.collapsed .btn-overview-collapse { transform: rotate(-90deg); }
 
     /* ── Status bar ── */
     #status-bar { padding: 6px 18px; font-size: 12px; display: none; flex-shrink: 0; }
@@ -611,6 +634,7 @@
 <!-- Overview K-bar chart (filtered stocks sorted by 漲跌幅) -->
 <div class="overview-wrap" id="overview-wrap">
   <div class="overview-header">
+    <button class="btn-overview-collapse" id="btn-overview-collapse" title="收折／展開">▼</button>
     <span class="overview-title">篩選結果 K棒總覽</span>
     <span class="overview-count">（依漲跌幅排列）<span id="overview-count"></span></span>
   </div>
@@ -1993,6 +2017,21 @@
   window.addEventListener('resize', renderOverviewChart);
 
   // ── Init ──
+  // ── Overview collapse toggle ──
+  (function() {
+    const wrap = document.getElementById('overview-wrap');
+    const btn  = document.getElementById('btn-overview-collapse');
+    // 還原上次狀態
+    if (localStorage.getItem('overview_collapsed') === '1') {
+      wrap.classList.add('collapsed');
+      btn.textContent = '▼';
+    }
+    btn.addEventListener('click', () => {
+      const collapsed = wrap.classList.toggle('collapsed');
+      localStorage.setItem('overview_collapsed', collapsed ? '1' : '0');
+    });
+  })();
+
   fetchStocks();
   startTicker();
   loadCompareData();   // 自動從 Google Sheets 載入對照資料
