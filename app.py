@@ -909,6 +909,22 @@ def api_stocks():
 
 
 
+@app.route('/api/portfolio-prices', methods=['POST'])
+def api_portfolio_prices():
+    """查詢持股清單的即時股價（不限排行榜範圍，可查任意股票）。"""
+    try:
+        body  = request.get_json()
+        codes = [str(c).strip() for c in body.get('codes', []) if str(c).strip()]
+        if not codes:
+            return jsonify({'success': False, 'error': '未提供股票代號'}), 400
+
+        codes_markets = [(code, get_stock_market(code)) for code in codes]
+        result = get_twse_realtime(codes_markets)
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/history')
 def api_history():
     """Return available dates, or snapshot for a specific date."""

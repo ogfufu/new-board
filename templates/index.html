@@ -775,7 +775,8 @@
       <div class="portfolio-toolbar">
         <span style="font-size:13px;font-weight:700;">📋 我的持股</span>
         <button class="btn btn-add-sector" id="btn-add-holding">+ 新增</button>
-        <span style="font-size:11px;color:var(--muted);">股價來源：即時排行榜</span>
+        <button class="btn btn-refresh" id="btn-portfolio-update" title="抓取所有持股即時股價">🔄 更新股價</button>
+        <span style="font-size:11px;color:var(--muted);" id="portfolio-update-hint"></span>
       </div>
       <div class="portfolio-table-wrap">
         <table class="ptbl">
@@ -2149,9 +2150,43 @@
   let portfolio = JSON.parse(localStorage.getItem('rack_portfolio') || '[]');
   // portfolio = [{code, shares}, ...]
 
+  // 持股專屬股價快取（來自 /api/portfolio-prices，不依賴排行榜）
+  let portfolioPrices = {};  // { code: {name, price, change_pct} }
+
   function savePortfolio() {
     localStorage.setItem('rack_portfolio', JSON.stringify(portfolio));
   }
+
+  // 更新所有持股股價
+  async function updatePortfolioPrices() {
+    const codes = portfolio.map(p => p.code).filter(c => c && c.trim());
+    if (!codes.length) return;
+
+    const btn  = document.getElementById('btn-portfolio-update');
+    const hint = document.getElementById('portfolio-update-hint');
+    btn.disabled = true;
+    btn.textContent = '⏳ 更新中…';
+    hint.textContent = '';
+
+    try {
+      const res  = await fetch('/api/portfolio-prices', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ codes }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      portfolioPrices = json.data;  // { code: {name, price, ...} }
+      hint.textContent = `已更新 ${Object.keys(portfolioPrices).length} 檔・${new Date().toLocaleTimeString('zh-TW')}`;
+      renderPortfolio();
+    } catch (e) {
+      hint.textContent = '❌ 更新失敗：' + e.message;
+    }
+    btn.disabled = false;
+    btn.textContent = '🔄 更新股價';
+  }
+
+  document.getElementById('btn-portfolio-update').addEventListener('click', updatePortfolioPrices);
 
   function buildDonutSVG(slices) {
     // slices = [{code, name, value, color, pct}]
@@ -2191,15 +2226,18 @@
   }
 
   function renderPortfolio() {
-    // 合併即時資料
+    // 合併股價：優先用 portfolioPrices（獨立更新），fallback 到排行榜
     const data = portfolio.map((p, i) => {
-      const live  = allData.find(r => String(r['代號']) === String(p.code));
-      const price = live ? live['股價'] : null;
-      const value = (price && p.shares) ? price * p.shares : 0;
+      const code    = String(p.code || '');
+      const cached  = portfolioPrices[code];
+      const live    = allData.find(r => String(r['代號']) === code);
+      const price   = cached?.price ?? (live ? live['股價'] : null);
+      const name    = cached?.name  || (live ? live['名稱'] : '');
+      const value   = (price && p.shares) ? price * p.shares : 0;
       return {
-        code:   p.code || '',
+        code,
         shares: p.shares || 0,
-        name:   live ? live['名稱'] : '',
+        name,
         price,
         value,
         color: PIE_COLORS[i % PIE_COLORS.length],
