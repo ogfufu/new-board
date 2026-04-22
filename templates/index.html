@@ -2028,7 +2028,7 @@
       return;
     }
 
-    const header = '代號\t名稱\t漲跌幅%\t外資(億)\t投信(億)\t月YOY%\t月-1YOY%\t資金(億)\t族群';
+    const header = '新上榜\t代號\t名稱\t漲跌幅%\t外資(億)\t投信(億)\t月YOY%\t月-1YOY%\t資金(億)\t族群';
     const lines = rows.map(r => {
       const price   = r['股價']    || 0;
       const foreign = r['外資']    || 0;
@@ -2039,7 +2039,8 @@
       const yoy     = r['月(YOY)']   != null ? r['月(YOY)'].toFixed(1)   + '%' : '—';
       const yoy1    = r['月-1(YOY)'] != null ? r['月-1(YOY)'].toFixed(1) + '%' : '—';
       const cap     = r['資金(億)']  != null ? r['資金(億)'].toFixed(1)         : '—';
-      return [r['代號'], r['名稱'], (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%',
+      const newMark = (prevHistCodes.size > 0 && !prevHistCodes.has(String(r['代號']))) ? '★新上榜' : '';
+      return [newMark, r['代號'], r['名稱'], (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%',
               fAmt + '億', tAmt + '億', yoy, yoy1, cap, r['產業類型'] || ''].join('\t');
     });
 
