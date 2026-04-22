@@ -213,6 +213,14 @@ def init_db():
             data TEXT NOT NULL
         )
     ''')
+    # 當日曾進前100的代號（重啟後可還原，換日自動清空）
+    con.execute('''
+        CREATE TABLE IF NOT EXISTS daily_seen (
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            PRIMARY KEY (date, code)
+        )
+    ''')
     con.commit()
     con.close()
 
@@ -403,13 +411,40 @@ def get_snapshot(date_str):
     return [dict(zip(cols, r)) for r in rows]
 
 
+def db_load_daily_seen(date_str):
+    """從 SQLite 載入當日曾進前100的代號集合。"""
+    con = sqlite3.connect(DB_PATH)
+    rows = con.execute('SELECT code FROM daily_seen WHERE date=?', (date_str,)).fetchall()
+    con.close()
+    return set(r[0] for r in rows)
+
+
+def db_save_daily_seen(date_str, codes):
+    """將新代號寫入 daily_seen（INSERT OR IGNORE 避免重複）。"""
+    con = sqlite3.connect(DB_PATH)
+    con.executemany(
+        'INSERT OR IGNORE INTO daily_seen (date, code) VALUES (?, ?)',
+        [(date_str, c) for c in codes]
+    )
+    con.commit()
+    con.close()
+
+
+def db_clear_old_daily_seen(keep_date):
+    """刪除非今日的 daily_seen 記錄，避免資料庫無限增長。"""
+    con = sqlite3.connect(DB_PATH)
+    con.execute('DELETE FROM daily_seen WHERE date != ?', (keep_date,))
+    con.commit()
+    con.close()
+
+
 # ---------- In-memory cache ----------
 _last_df = None
 _wespai_cache = {'data': None, 'date': None}
 _wespai_lock = threading.Lock()
 
 # ---------- 漲停保留：記錄當日曾進前100的代號 ----------
-_daily_seen_top100 = set()   # 當日累積曾進前100的代號
+_daily_seen_top100 = set()   # 當日累積曾進前100的代號（含 DB 還原）
 _daily_seen_date   = None    # 記錄日期，換日時重置
 
 
@@ -619,15 +654,21 @@ def run_stock_update():
     import datetime as _dt
     today = _dt.date.today().isoformat()
     if _daily_seen_date != today:
+        # 換日：從 DB 還原今日記錄（重啟後不遺失），並清除舊日資料
         _daily_seen_top100.clear()
+        _daily_seen_top100.update(db_load_daily_seen(today))
         _daily_seen_date = today  # type: ignore
+        db_clear_old_daily_seen(today)
 
     # ── 前100名（需有YOY，過濾ETF）──
     df_yoy    = df[df['月(YOY)'].notna()].copy()
     df_sorted = df_yoy.sort_values('資金(億)', ascending=False).reset_index(drop=True)
     top100    = df_sorted.head(100).copy()
 
-    # 累積當日曾進前100的代號
+    # 累積當日曾進前100的代號（同時寫入 DB，重啟後可還原）
+    new_codes = set(top100['代號'].tolist()) - _daily_seen_top100
+    if new_codes:
+        db_save_daily_seen(today, new_codes)
     _daily_seen_top100.update(top100['代號'].tolist())
 
     top100['漲停保留'] = False
