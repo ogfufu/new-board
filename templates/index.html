@@ -369,6 +369,88 @@
     .ind-tooltip td:nth-child(4) { text-align: right; font-weight: 600; min-width: 52px; }
     .ind-tooltip td:nth-child(5) { text-align: right; color: var(--muted); min-width: 44px; }
 
+    /* ── Industry cell click style ── */
+    .td-ind-click {
+      cursor: pointer;
+      color: var(--accent);
+      text-decoration: underline dotted;
+      text-underline-offset: 3px;
+    }
+    .td-ind-click:hover { color: #58a6ff; }
+
+    /* ── Industry groups modal ── */
+    .ind-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.65);
+      z-index: 10000;
+      align-items: center;
+      justify-content: center;
+    }
+    .ind-modal-overlay.visible { display: flex; }
+    .ind-modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      width: min(680px, 95vw);
+      max-height: 82vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,.8);
+      animation: modalIn .15s ease;
+    }
+    @keyframes modalIn { from { opacity:0; transform:scale(.96); } to { opacity:1; transform:scale(1); } }
+    .ind-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .ind-modal-header-title { font-size: 14px; font-weight: 700; }
+    .ind-modal-header-sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .ind-modal-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 18px;
+      padding: 0 4px;
+      line-height: 1;
+    }
+    .ind-modal-close:hover { color: var(--text); }
+    .ind-modal-body { overflow-y: auto; padding: 14px 18px 18px; flex: 1; }
+    .ind-group-section { margin-bottom: 18px; }
+    .ind-group-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ind-group-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .ind-group-table th {
+      text-align: left;
+      padding: 3px 6px;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .ind-group-table td { padding: 3px 6px; border-bottom: 1px solid #21262d; vertical-align: middle; }
+    .ind-group-table tr:last-child td { border-bottom: none; }
+    .ind-group-table tr.self-row td { background: rgba(56,139,253,.12); }
+    .ind-group-table td.col-code { font-family: monospace; font-size: 11px; color: var(--muted); min-width: 38px; }
+    .ind-group-table td.col-name { font-weight: 600; white-space: nowrap; }
+    .ind-group-table td.col-num  { text-align: right; white-space: nowrap; }
+    .ind-modal-empty { color: var(--muted); font-size: 12px; padding: 20px 0; text-align: center; }
+
     /* K-bar hover tooltip */
     #kbar-tooltip {
       display: none;
@@ -777,6 +859,108 @@
 
   const SIGN_COLS = new Set(['漲跌幅', '外資', '投信', '月(YOY)', '月-1(YOY)']);
   const NUM_COLS  = new Set(['股價', '漲跌幅', '開盤', '資金(億)']);
+
+  // ── Industry Groups (from /api/industry-groups) ──
+  let industryGroups   = {};  // { industry_name: ["code 公司名", ...] }
+  let codeToIndustries = {};  // { code: [industry_name, ...] }
+
+  async function loadIndustryGroups() {
+    try {
+      const res = await fetch('/api/industry-groups');
+      if (!res.ok) return;
+      industryGroups = await res.json();
+      codeToIndustries = {};
+      for (const [ind, stocks] of Object.entries(industryGroups)) {
+        for (const stockStr of stocks) {
+          const code = stockStr.split(' ')[0];
+          if (!codeToIndustries[code]) codeToIndustries[code] = [];
+          codeToIndustries[code].push(ind);
+        }
+      }
+      renderTable();
+    } catch(e) { /* silently ignore */ }
+  }
+
+  function showIndModal(code) {
+    const groups = codeToIndustries[code] || [];
+    if (!groups.length) return;
+
+    const selfRec  = allData.find(r => String(r['代號']) === String(code));
+    const selfName = selfRec ? selfRec['名稱'] : '';
+    document.getElementById('ind-modal-title').textContent = `${code} ${selfName}`.trim();
+    document.getElementById('ind-modal-sub').textContent = `共 ${groups.length} 個族群`;
+
+    // Fast live-data lookup
+    const liveMap = {};
+    allData.forEach(r => { liveMap[String(r['代號'])] = r; });
+
+    function fmtAmt(val, price) {
+      if (val == null) return null;
+      if (price != null) return (val * price / 10000).toFixed(2) + '億';
+      return String(val) + '張';
+    }
+    function numCell(val, price) {
+      if (val == null) return `<td class="col-num" style="color:var(--muted)">—</td>`;
+      const amt = fmtAmt(val, price);
+      const cls = val > 0 ? 'pos' : val < 0 ? 'neg' : 'zero';
+      const sign = val > 0 ? '+' : '';
+      return `<td class="col-num ${cls}">${sign}${amt}</td>`;
+    }
+
+    let html = '';
+    for (const grp of groups) {
+      const stocks = industryGroups[grp] || [];
+      html += `<div class="ind-group-section">
+        <div class="ind-group-title">${grp} <span style="font-weight:400;color:var(--muted)">${stocks.length}檔</span></div>
+        <table class="ind-group-table">
+          <thead><tr>
+            <th>代號</th><th>名稱</th>
+            <th style="text-align:right">漲跌幅</th>
+            <th style="text-align:right">外資</th>
+            <th style="text-align:right">投信</th>
+          </tr></thead><tbody>`;
+
+      for (const stockStr of stocks) {
+        const parts = stockStr.split(' ');
+        const sc = parts[0];
+        const sn = parts.slice(1).join(' ');
+        const isSelf = sc === String(code);
+        const live = liveMap[sc];
+
+        let chgCell = `<td class="col-num" style="color:var(--muted)">—</td>`;
+        let forCell = `<td class="col-num" style="color:var(--muted)">—</td>`;
+        let truCell = `<td class="col-num" style="color:var(--muted)">—</td>`;
+
+        if (live) {
+          const chg = live['漲跌幅'] ?? 0;
+          const chgCls = chg > 0 ? 'pos' : chg < 0 ? 'neg' : 'zero';
+          const chgSign = chg > 0 ? '+' : '';
+          chgCell = `<td class="col-num ${chgCls}">${chgSign}${chg.toFixed(2)}%</td>`;
+          forCell = numCell(live['外資'], live['股價']);
+          truCell = numCell(live['投信'], live['股價']);
+        }
+
+        html += `<tr${isSelf ? ' class="self-row"' : ''}>
+          <td class="col-code">${sc}</td>
+          <td class="col-name">${sn}</td>
+          ${chgCell}${forCell}${truCell}
+        </tr>`;
+      }
+      html += `</tbody></table></div>`;
+    }
+
+    document.getElementById('ind-modal-body').innerHTML = html || `<div class="ind-modal-empty">無資料</div>`;
+    document.getElementById('ind-modal-overlay').classList.add('visible');
+  }
+
+  function closeIndModal() {
+    document.getElementById('ind-modal-overlay').classList.remove('visible');
+  }
+
+  // Close modal on Escape key
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeIndModal();
+  });
 
   // ── 族群分類 ──
   // 層級1：個股代號對應（優先）
@@ -1190,8 +1374,17 @@
         if (col === '名稱')    return `<td class="td-name">${val ?? '—'}</td>`;
         if (col === '市場')    return `<td class="td-market" style="font-size:11px;color:var(--muted)">${val ?? '—'}</td>`;
         if (col === '產業類型') {
-          const zq = getZuqun(r['代號'], val);
-          return `<td class="td-industry" title="${val ?? ''}">${zq}</td>`;
+          const code = String(r['代號']);
+          const groups = codeToIndustries[code] || [];
+          if (groups.length > 0) {
+            const display = groups.slice(0, 2).join(' / ');
+            const more = groups.length > 2 ? ` +${groups.length - 2}` : '';
+            const title = groups.join('、');
+            return `<td class="td-industry td-ind-click" title="${title}" onclick="showIndModal('${code}')">${display}${more}</td>`;
+          } else {
+            const zq = getZuqun(r['代號'], val);
+            return `<td class="td-industry" title="${val ?? ''}">${zq}</td>`;
+          }
         }
 
         if (val === null || val === undefined) return `<td class="zero">—</td>`;
@@ -2076,6 +2269,21 @@
   startTicker();
   loadCompareData();   // 自動從 Google Sheets 載入對照資料
   loadSectors();       // fetches sector configs from server DB (falls back to localStorage)
+  loadIndustryGroups(); // 載入產業族群 JSON
 </script>
+
+<!-- Industry Groups Modal -->
+<div id="ind-modal-overlay" class="ind-modal-overlay" onclick="if(event.target===this)closeIndModal()">
+  <div id="ind-modal" class="ind-modal">
+    <div class="ind-modal-header">
+      <div>
+        <div class="ind-modal-header-title" id="ind-modal-title"></div>
+        <div class="ind-modal-header-sub" id="ind-modal-sub"></div>
+      </div>
+      <button class="ind-modal-close" onclick="closeIndModal()">✕</button>
+    </div>
+    <div id="ind-modal-body" class="ind-modal-body"></div>
+  </div>
+</div>
 </body>
 </html>

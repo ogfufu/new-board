@@ -1,5 +1,6 @@
 history.db
 *.json
+!industry_groups.json
 __pycache__/
 *.pyc
 *.pyo

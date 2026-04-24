@@ -909,21 +909,6 @@ def api_stocks():
 
 
 
-@app.route('/api/portfolio-prices', methods=['POST'])
-def api_portfolio_prices():
-    """查詢持股清單的即時股價（不限排行榜範圍，可查任意股票）。"""
-    try:
-        body  = request.get_json()
-        codes = [str(c).strip() for c in body.get('codes', []) if str(c).strip()]
-        if not codes:
-            return jsonify({'success': False, 'error': '未提供股票代號'}), 400
-
-        codes_markets = [(code, get_stock_market(code)) for code in codes]
-        result = get_twse_realtime(codes_markets)
-        return jsonify({'success': True, 'data': result})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
 
 @app.route('/api/history')
 def api_history():
@@ -937,6 +922,27 @@ def api_history():
     else:
         dates = get_history_dates()
         return jsonify({'success': True, 'dates': dates})
+
+
+# ---------- Industry Groups ----------
+_INDUSTRY_GROUPS_PATH = os.path.join(os.path.dirname(__file__), 'industry_groups.json')
+_industry_groups_cache = None
+
+def _load_industry_groups():
+    global _industry_groups_cache
+    if _industry_groups_cache is None:
+        try:
+            with open(_INDUSTRY_GROUPS_PATH, 'r', encoding='utf-8') as f:
+                _industry_groups_cache = json.load(f)
+        except Exception:
+            _industry_groups_cache = {}
+    return _industry_groups_cache
+
+@app.route('/api/industry-groups')
+def api_industry_groups():
+    """Return industry_groups.json: { industry_name: ["code 公司名", ...], ... }"""
+    data = _load_industry_groups()
+    return jsonify(data)
 
 
 init_db()
