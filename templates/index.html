@@ -257,8 +257,7 @@
     tr.limitup-kept { background: rgba(248,81,73,.06); }
     tr.limitup-kept:hover { background: rgba(248,81,73,.13) !important; }
     /* 漲跌幅 >= 9% 高亮 */
-    tr.limit-up-row { background: rgba(248,81,73,.18) !important; }
-    tr.limit-up-row:hover { background: rgba(248,81,73,.28) !important; }
+    td.limit-up-cell { background: rgba(248,81,73,.35) !important; font-weight: 700; }
     .lock-badge { font-size: 12px; }
 
     /* Table footer */
@@ -1206,9 +1205,10 @@
           return `<td class="${cls}">${disp}</td>`;
         }
         if (SIGN_COLS.has(col) && typeof val === 'number') {
-          const cls  = val > 0 ? 'pos' : val < 0 ? 'neg' : 'zero';
-          const sign = val > 0 ? '+' : '';
-          return `<td class="${cls}">${sign}${val.toFixed(2)}</td>`;
+          const cls     = val > 0 ? 'pos' : val < 0 ? 'neg' : 'zero';
+          const sign    = val > 0 ? '+' : '';
+          const limitUp = col === '漲跌幅' && val >= 9 ? ' limit-up-cell' : '';
+          return `<td class="${cls}${limitUp}">${sign}${val.toFixed(2)}</td>`;
         }
         if (NUM_COLS.has(col) && typeof val === 'number') {
           return `<td>${val.toLocaleString('zh-TW', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>`;
@@ -1216,8 +1216,7 @@
         return `<td>${val}</td>`;
       });
 
-      const isLimitUp = !isKept && (r['漲跌幅'] ?? 0) >= 9;
-      return `<tr class="${isKept ? 'limitup-kept' : isLimitUp ? 'limit-up-row' : ''}">${watchCell}${kbarCell}${cells.join('')}</tr>`;
+      return `<tr class="${isKept ? 'limitup-kept' : ''}">${watchCell}${kbarCell}${cells.join('')}</tr>`;
     }).join('');
     // Watch button click handlers
     tbody.querySelectorAll('.btn-watch').forEach(btn => {
