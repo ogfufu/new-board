@@ -90,33 +90,6 @@
     .btn-wespai  { background: #7d4e00; color: #fff; }
     .btn-copy    { background: #2d6a4f; color: #fff; }
 
-    /* ── Portfolio tab ── */
-    .portfolio-layout { display:flex; flex:1; min-height:0; overflow:hidden; }
-    .portfolio-left  { flex:1; min-width:0; display:flex; flex-direction:column; overflow:hidden; border-right:1px solid var(--border); }
-    .portfolio-right { width:300px; min-width:260px; display:flex; flex-direction:column; align-items:center; padding:20px 16px 24px; overflow-y:auto; background:var(--surface); gap:0; }
-    .portfolio-toolbar { background:var(--header-bg); border-bottom:1px solid var(--border); padding:8px 18px; display:flex; align-items:center; gap:12px; flex-shrink:0; }
-    .portfolio-table-wrap { overflow:auto; flex:1; padding:8px 12px 16px; }
-    .ptbl { width:100%; border-collapse:collapse; font-size:12px; white-space:nowrap; }
-    .ptbl thead th { background:var(--header-bg); border:1px solid var(--border); padding:5px 8px; text-align:right; color:var(--muted); font-weight:600; font-size:11px; }
-    .ptbl thead th:first-child, .ptbl thead th:nth-child(2) { text-align:left; }
-    .ptbl tbody td { border:1px solid var(--border); padding:4px 8px; text-align:right; vertical-align:middle; }
-    .ptbl tbody td:first-child, .ptbl tbody td:nth-child(2) { text-align:left; }
-    .ptbl tfoot td { border:1px solid var(--border); padding:6px 8px; text-align:right; background:var(--header-bg); color:var(--muted); font-size:12px; font-weight:600; }
-    .ph-inp { background:var(--surface); border:1px solid var(--border); color:var(--text); padding:3px 6px; border-radius:4px; font-size:12px; outline:none; }
-    .ph-inp:focus { border-color:var(--accent); }
-    .ph-del { background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0 3px; line-height:1; }
-    .ph-del:hover { color:var(--red); }
-    .pie-wrap-title { font-size:11px; font-weight:600; color:var(--muted); letter-spacing:.4px; text-transform:uppercase; align-self:flex-start; margin-bottom:12px; }
-    #portfolio-pie-wrap { width:260px; height:260px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
-    .pie-legend-wrap { width:100%; margin-top:16px; }
-    .pie-legend-sep { font-size:11px; color:var(--muted); font-weight:600; padding-bottom:6px; border-bottom:1px solid var(--border); margin-bottom:6px; display:flex; gap:6px; }
-    .pie-leg-item { display:flex; align-items:center; gap:7px; padding:4px 0; font-size:12px; }
-    .pie-leg-dot  { width:10px; height:10px; border-radius:2px; flex-shrink:0; }
-    .pie-leg-code { font-weight:700; color:var(--text); min-width:42px; }
-    .pie-leg-name { flex:1; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
-    .pie-leg-pct  { color:var(--accent); font-weight:600; min-width:42px; text-align:right; }
-    .pie-leg-val  { color:var(--muted); font-size:11px; min-width:50px; text-align:right; }
-
     /* Side panel tabs */
     .side-tabbar { display:flex; border-bottom:1px solid var(--border); margin-bottom:8px; }
     .side-tab { flex:1; padding:5px 4px; font-size:12px; font-weight:600; background:none;
@@ -283,6 +256,9 @@
     /* 漲停保留列 */
     tr.limitup-kept { background: rgba(248,81,73,.06); }
     tr.limitup-kept:hover { background: rgba(248,81,73,.13) !important; }
+    /* 漲跌幅 >= 9% 高亮 */
+    tr.limit-up-row { background: rgba(248,81,73,.18) !important; }
+    tr.limit-up-row:hover { background: rgba(248,81,73,.28) !important; }
     .lock-badge { font-size: 12px; }
 
     /* Table footer */
@@ -595,7 +571,6 @@
 <div class="tabbar">
   <button class="tab-btn active" data-tab="ranking">排行榜</button>
   <button class="tab-btn" data-tab="sectors">類股K棒</button>
-  <button class="tab-btn" data-tab="portfolio">持股管理</button>
 </div>
 
 <div id="tab-ranking" class="tab-pane active">
@@ -765,61 +740,6 @@
     <span class="sectors-hint">資料來源：即時排行榜（需先載入資料）</span>
   </div>
   <div class="sectors-grid" id="sectors-grid"></div>
-</div>
-
-<!-- 持股管理 tab -->
-<div id="tab-portfolio" class="tab-pane">
-  <div class="portfolio-layout">
-    <!-- 左側：持股清單 -->
-    <div class="portfolio-left">
-      <div class="portfolio-toolbar">
-        <span style="font-size:13px;font-weight:700;">📋 我的持股</span>
-        <button class="btn btn-add-sector" id="btn-add-holding">+ 新增</button>
-        <button class="btn btn-refresh" id="btn-portfolio-update" title="抓取所有持股即時股價">🔄 更新股價</button>
-        <span style="font-size:11px;color:var(--muted);" id="portfolio-update-hint"></span>
-      </div>
-      <div class="portfolio-table-wrap">
-        <table class="ptbl">
-          <thead>
-            <tr>
-              <th style="text-align:left;width:100px;">代號</th>
-              <th style="text-align:left;">名稱</th>
-              <th>股數</th>
-              <th>股價</th>
-              <th>市值(萬)</th>
-              <th>佔比</th>
-              <th style="width:28px;"></th>
-            </tr>
-          </thead>
-          <tbody id="portfolio-tbody">
-            <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">點擊「+ 新增」加入持股</td></tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="4" style="text-align:right;color:var(--muted);font-weight:400;">總市值</td>
-              <td id="portfolio-total">—</td>
-              <td colspan="2"></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
-    <!-- 右側：圓餅圖 -->
-    <div class="portfolio-right">
-      <div class="pie-wrap-title">持股市值比例</div>
-      <div id="portfolio-pie-wrap"></div>
-      <div class="pie-legend-wrap">
-        <div class="pie-legend-sep">
-          <span style="width:10px;"></span>
-          <span style="min-width:42px;">代號</span>
-          <span style="flex:1;">名稱</span>
-          <span style="min-width:42px;text-align:right;">佔比</span>
-          <span style="min-width:50px;text-align:right;">市值</span>
-        </div>
-        <div id="portfolio-legend"></div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <!-- Sector pick modal -->
@@ -1014,7 +934,6 @@
       renderTable();
       renderIndustryPanel();
       renderAllSectorCharts();
-      renderPortfolio();
       setStatus('');
       prevRanks = newRanks;
       loadCompareStatus();
@@ -1297,7 +1216,8 @@
         return `<td>${val}</td>`;
       });
 
-      return `<tr class="${isKept ? 'limitup-kept' : ''}">${watchCell}${kbarCell}${cells.join('')}</tr>`;
+      const isLimitUp = !isKept && (r['漲跌幅'] ?? 0) >= 9;
+      return `<tr class="${isKept ? 'limitup-kept' : isLimitUp ? 'limit-up-row' : ''}">${watchCell}${kbarCell}${cells.join('')}</tr>`;
     }).join('');
     // Watch button click handlers
     tbody.querySelectorAll('.btn-watch').forEach(btn => {
@@ -1682,8 +1602,7 @@
       document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-' + tab).classList.add('active');
-      if (tab === 'sectors')   renderAllSectorCharts();
-      if (tab === 'portfolio') renderPortfolio();
+      if (tab === 'sectors') renderAllSectorCharts();
     });
   });
 
@@ -2137,195 +2056,6 @@
     }).catch(() => {
       setStatus('error', '❌ 複製失敗，請確認瀏覽器權限');
     });
-  });
-
-  // ── 持股管理 ──
-  const PIE_COLORS = [
-    '#388bfd','#f85149','#3fb950','#d29922','#8957e5',
-    '#58a6ff','#ff7b72','#56d364','#e3b341','#bc8cff',
-    '#79c0ff','#ffa198','#7ee787','#eac55f','#dda0dd',
-    '#20b2aa','#ff6347','#4169e1','#32cd32','#ff69b4',
-  ];
-
-  let portfolio = JSON.parse(localStorage.getItem('rack_portfolio') || '[]');
-  // portfolio = [{code, shares}, ...]
-
-  // 持股專屬股價快取（來自 /api/portfolio-prices，不依賴排行榜）
-  let portfolioPrices = {};  // { code: {name, price, change_pct} }
-
-  function savePortfolio() {
-    localStorage.setItem('rack_portfolio', JSON.stringify(portfolio));
-  }
-
-  // 更新所有持股股價
-  async function updatePortfolioPrices() {
-    const codes = portfolio.map(p => p.code).filter(c => c && c.trim());
-    if (!codes.length) return;
-
-    const btn  = document.getElementById('btn-portfolio-update');
-    const hint = document.getElementById('portfolio-update-hint');
-    btn.disabled = true;
-    btn.textContent = '⏳ 更新中…';
-    hint.textContent = '';
-
-    try {
-      const res  = await fetch('/api/portfolio-prices', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ codes }),
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error);
-      portfolioPrices = json.data;  // { code: {name, price, ...} }
-      hint.textContent = `已更新 ${Object.keys(portfolioPrices).length} 檔・${new Date().toLocaleTimeString('zh-TW')}`;
-      renderPortfolio();
-    } catch (e) {
-      hint.textContent = '❌ 更新失敗：' + e.message;
-    }
-    btn.disabled = false;
-    btn.textContent = '🔄 更新股價';
-  }
-
-  document.getElementById('btn-portfolio-update').addEventListener('click', updatePortfolioPrices);
-
-  function buildDonutSVG(slices) {
-    // slices = [{code, name, value, color, pct}]
-    const total = slices.reduce((s, d) => s + d.value, 0);
-    if (!total) return '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px 0;">尚無市值資料<br>（需先載入排行榜）</div>';
-
-    const cx = 130, cy = 130, oR = 112, iR = 58, W = 260, H = 260;
-    let angle = -Math.PI / 2;
-    const paths = [];
-
-    slices.forEach((s, i) => {
-      const pct = s.value / total;
-      const sa = angle, ea = angle + pct * 2 * Math.PI;
-      const large = pct > 0.5 ? 1 : 0;
-      const ox1 = cx + oR * Math.cos(sa), oy1 = cy + oR * Math.sin(sa);
-      const ox2 = cx + oR * Math.cos(ea), oy2 = cy + oR * Math.sin(ea);
-      const ix1 = cx + iR * Math.cos(sa), iy1 = cy + iR * Math.sin(sa);
-      const ix2 = cx + iR * Math.cos(ea), iy2 = cy + iR * Math.sin(ea);
-      paths.push(
-        `<path class="pie-slice" data-idx="${i}"
-          d="M${ox1.toFixed(1)},${oy1.toFixed(1)} A${oR},${oR} 0 ${large},1 ${ox2.toFixed(1)},${oy2.toFixed(1)}
-             L${ix2.toFixed(1)},${iy2.toFixed(1)} A${iR},${iR} 0 ${large},0 ${ix1.toFixed(1)},${iy1.toFixed(1)} Z"
-          fill="${s.color}" stroke="#0d1117" stroke-width="2" style="cursor:pointer;transition:opacity .15s;"/>`
-      );
-      angle = ea;
-    });
-
-    // 中心文字
-    const wan = (total / 10000).toFixed(1);
-    paths.push(
-      `<text x="${cx}" y="${cy - 10}" text-anchor="middle" font-size="11" fill="#8b949e">總市值</text>`,
-      `<text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="18" font-weight="700" fill="#e6edf3">${wan}</text>`,
-      `<text x="${cx}" y="${cy + 32}" text-anchor="middle" font-size="11" fill="#8b949e">萬元</text>`
-    );
-
-    return `<svg width="${W}" height="${H}" id="portfolio-pie-svg" xmlns="http://www.w3.org/2000/svg">${paths.join('')}</svg>`;
-  }
-
-  function renderPortfolio() {
-    // 合併股價：優先用 portfolioPrices（獨立更新），fallback 到排行榜
-    const data = portfolio.map((p, i) => {
-      const code    = String(p.code || '');
-      const cached  = portfolioPrices[code];
-      const live    = allData.find(r => String(r['代號']) === code);
-      const price   = cached?.price ?? (live ? live['股價'] : null);
-      const name    = cached?.name  || (live ? live['名稱'] : '');
-      const value   = (price && p.shares) ? price * p.shares : 0;
-      return {
-        code,
-        shares: p.shares || 0,
-        name,
-        price,
-        value,
-        color: PIE_COLORS[i % PIE_COLORS.length],
-      };
-    });
-
-    const total = data.reduce((s, d) => s + d.value, 0);
-    const colored = data.map(d => ({
-      ...d,
-      pct: total ? d.value / total * 100 : 0,
-    }));
-
-    // ── 表格 ──
-    const tbody = document.getElementById('portfolio-tbody');
-    if (!colored.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px;">點擊「+ 新增」加入持股</td></tr>';
-    } else {
-      tbody.innerHTML = colored.map((d, i) => `
-        <tr>
-          <td>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span style="width:10px;height:10px;border-radius:2px;background:${d.color};flex-shrink:0;"></span>
-              <input class="ph-inp ph-code" value="${d.code}" placeholder="代號" maxlength="6" data-idx="${i}" style="width:56px;">
-            </div>
-          </td>
-          <td style="color:var(--muted);font-size:11px;">${d.name || '—'}</td>
-          <td><input class="ph-inp ph-shares" type="number" min="0" value="${d.shares || ''}" placeholder="股數" data-idx="${i}" style="width:80px;"></td>
-          <td>${d.price != null ? d.price.toLocaleString('zh-TW') : '<span style="color:var(--muted)">—</span>'}</td>
-          <td style="font-weight:600;color:var(--text);">${d.value ? (d.value / 10000).toFixed(2) : '<span style="color:var(--muted)">—</span>'}</td>
-          <td style="color:var(--accent);font-weight:600;">${d.pct ? d.pct.toFixed(1) + '%' : '—'}</td>
-          <td><button class="ph-del" data-idx="${i}">✕</button></td>
-        </tr>`).join('');
-    }
-
-    // 總計
-    const totalEl = document.getElementById('portfolio-total');
-    totalEl.textContent = total ? (total / 10000).toFixed(2) + ' 萬' : '—';
-
-    // ── 圓餅圖 ──
-    const pieWrap = document.getElementById('portfolio-pie-wrap');
-    const valid = colored.filter(d => d.value > 0);
-    pieWrap.innerHTML = buildDonutSVG(valid);
-
-    // Pie hover
-    const pieSvg = document.getElementById('portfolio-pie-svg');
-    if (pieSvg) {
-      pieSvg.querySelectorAll('.pie-slice').forEach(path => {
-        path.addEventListener('mouseenter', () => path.style.opacity = '0.75');
-        path.addEventListener('mouseleave', () => path.style.opacity = '1');
-      });
-    }
-
-    // ── 圖例 ──
-    const legend = document.getElementById('portfolio-legend');
-    legend.innerHTML = colored.map(d => `
-      <div class="pie-leg-item">
-        <span class="pie-leg-dot" style="background:${d.color};"></span>
-        <span class="pie-leg-code">${d.code || '—'}</span>
-        <span class="pie-leg-name">${d.name || '—'}</span>
-        <span class="pie-leg-pct">${d.pct ? d.pct.toFixed(1) + '%' : '—'}</span>
-        <span class="pie-leg-val">${d.value ? (d.value / 10000).toFixed(1) + '萬' : '—'}</span>
-      </div>`).join('');
-
-    // ── 事件重新綁定 ──
-    tbody.querySelectorAll('.ph-code').forEach(inp => {
-      inp.addEventListener('change', () => {
-        portfolio[+inp.dataset.idx].code = inp.value.trim().toUpperCase();
-        savePortfolio(); renderPortfolio();
-      });
-    });
-    tbody.querySelectorAll('.ph-shares').forEach(inp => {
-      inp.addEventListener('input', () => {
-        portfolio[+inp.dataset.idx].shares = parseInt(inp.value) || 0;
-        savePortfolio(); renderPortfolio();
-      });
-    });
-    tbody.querySelectorAll('.ph-del').forEach(btn => {
-      btn.addEventListener('click', () => {
-        portfolio.splice(+btn.dataset.idx, 1);
-        savePortfolio(); renderPortfolio();
-      });
-    });
-  }
-
-  document.getElementById('btn-add-holding').addEventListener('click', () => {
-    portfolio.push({ code: '', shares: 0 });
-    savePortfolio();
-    renderPortfolio();
   });
 
   // ── Overview collapse toggle ──
