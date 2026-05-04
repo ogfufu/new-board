@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>儀表板</title>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -451,6 +452,63 @@
     .ind-group-table td.col-num  { text-align: right; white-space: nowrap; }
     .ind-modal-empty { color: var(--muted); font-size: 12px; padding: 20px 0; text-align: center; }
 
+    /* ── K-line modal ── */
+    .kline-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.65);
+      z-index: 10001;
+      align-items: center;
+      justify-content: center;
+    }
+    .kline-modal-overlay.visible { display: flex; }
+    .kline-modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      width: min(860px, 97vw);
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,.85);
+      animation: modalIn .15s ease;
+      overflow: hidden;
+    }
+    .kline-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 13px 18px 11px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .kline-modal-title  { font-size: 15px; font-weight: 700; }
+    .kline-modal-meta   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .kline-modal-close  {
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 18px; padding: 0 4px; line-height: 1;
+    }
+    .kline-modal-close:hover { color: var(--text); }
+    .kline-modal-body   { flex: 1; padding: 14px 16px 16px; overflow: hidden; display: flex; flex-direction: column; gap: 6px; }
+    #kline-chart        { width: 100%; height: 340px; border-radius: 6px; overflow: hidden; }
+    #kline-vol-chart    { width: 100%; height: 100px; border-radius: 6px; overflow: hidden; }
+    .kline-legend       { display: flex; gap: 14px; font-size: 11px; padding: 0 2px; flex-wrap: wrap; }
+    .kline-legend span  { display: flex; align-items: center; gap: 4px; }
+    .kline-legend .dot  { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+    .kline-loading      { text-align: center; padding: 60px 0; color: var(--muted); font-size: 13px; }
+    .kline-vol-ratio    { font-size: 13px; font-weight: 700; }
+    .kline-vol-ratio.high  { color: var(--red); }
+    .kline-vol-ratio.mid   { color: var(--text); }
+    .kline-vol-ratio.low   { color: var(--muted); }
+
+    /* ── 量比 cell ── */
+    td.td-vol-ratio { text-align: right; font-size: 12px; white-space: nowrap; min-width: 44px; }
+    td.td-vol-ratio.vr-ex   { color: #ff6b6b; font-weight: 800; text-shadow: 0 0 6px rgba(255,107,107,.6); }
+    td.td-vol-ratio.vr-high { color: #f0883e; font-weight: 700; }
+    td.td-vol-ratio.vr-mid  { color: var(--text); }
+    td.td-vol-ratio.vr-low  { color: var(--muted); }
+
     /* K-bar hover tooltip */
     #kbar-tooltip {
       display: none;
@@ -701,6 +759,10 @@
     <input type="checkbox" id="f-gap-en"> 跳空 ≥
     <input type="number" id="f-gap-val" value="2.5" step="0.1"> %
   </label>
+  <label class="f-item" id="fl-volratio" title="今日成交量 / 5日均量">
+    <input type="checkbox" id="f-volratio-en"> 量比 ≥
+    <input type="number" id="f-volratio-val" value="1.5" step="0.1" min="0">
+  </label>
   <label class="f-item" id="fl-redk" title="收盤價 > 開盤價">
     <input type="checkbox" id="f-redk-en"> 🕯️ 紅K
   </label>
@@ -745,6 +807,7 @@
             <th data-col="市場">市場</th>
             <th data-col="股價">股價</th>
             <th data-col="漲跌幅">漲跌幅%</th>
+            <th class="no-sort" title="今日成交量 / 5日均量">量比</th>
             <th data-col="外資">外資金額(千萬)</th>
             <th data-col="投信">投信金額(千萬)</th>
             <th data-col="月(YOY)">月(YOY)%</th>
@@ -755,10 +818,10 @@
           </tr>
         </thead>
         <tbody id="table-body">
-          <tr><td colspan="15" style="text-align:center;padding:40px;color:var(--muted)">載入中…</td></tr>
+          <tr><td colspan="16" style="text-align:center;padding:40px;color:var(--muted)">載入中…</td></tr>
         </tbody>
         <tfoot>
-          <tr><td colspan="15" id="tfoot-count" style="text-align:right">共 0 筆</td></tr>
+          <tr><td colspan="16" id="tfoot-count" style="text-align:right">共 0 筆</td></tr>
         </tfoot>
       </table>
     </div>
@@ -860,6 +923,18 @@
   const SIGN_COLS = new Set(['漲跌幅', '外資', '投信', '月(YOY)', '月-1(YOY)']);
   const NUM_COLS  = new Set(['股價', '漲跌幅', '開盤', '資金(億)']);
 
+  // ── Vol-Ratio ──
+  let volRatioMap = {};   // { code: ratio }
+
+  async function loadVolRatio() {
+    try {
+      const res = await fetch('/api/vol-ratio');
+      if (!res.ok) return;
+      volRatioMap = await res.json();
+      renderTable();
+    } catch(e) { /* silent */ }
+  }
+
   // ── Industry Groups (from /api/industry-groups) ──
   let industryGroups   = {};  // { industry_name: ["code 公司名", ...] }
   let codeToIndustries = {};  // { code: [industry_name, ...] }
@@ -959,8 +1034,128 @@
 
   // Close modal on Escape key
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeIndModal();
+    if (e.key === 'Escape') { closeIndModal(); closeKlineModal(); }
   });
+
+  // ── K-line Chart Modal ──
+  let _klineChart    = null;
+  let _klineVolChart = null;
+
+  function closeKlineModal() {
+    document.getElementById('kline-modal-overlay').classList.remove('visible');
+  }
+
+  async function showKlineModal(code, name, market) {
+    const overlay = document.getElementById('kline-modal-overlay');
+    document.getElementById('kline-modal-title').textContent = `${code} ${name}`;
+    document.getElementById('kline-modal-vr').textContent = '';
+    document.getElementById('kline-modal-meta').textContent = `${market} ｜ 載入中…`;
+    document.getElementById('kline-chart').innerHTML     = '<div class="kline-loading">載入中…</div>';
+    document.getElementById('kline-vol-chart').innerHTML = '';
+    overlay.classList.add('visible');
+
+    try {
+      const res  = await fetch(`/api/kline/${code}?market=${encodeURIComponent(market)}`);
+      const json = await res.json();
+      if (!json.success || !json.data || !json.data.length) {
+        document.getElementById('kline-modal-meta').textContent = '無法取得資料（Yahoo Finance）';
+        document.getElementById('kline-chart').innerHTML = '<div class="kline-loading">查無資料</div>';
+        return;
+      }
+
+      const data = json.data;
+      const vr   = json.vol_ratio;
+
+      // Header meta
+      const last     = data[data.length - 1];
+      const chgColor = last.close >= last.open ? 'var(--red)' : 'var(--green)';
+      document.getElementById('kline-modal-meta').textContent =
+        `${market} ｜ 最新收盤 ${last.close} ｜ 共 ${data.length} 個交易日`;
+      if (vr != null) {
+        const vrEl  = document.getElementById('kline-modal-vr');
+        vrEl.textContent = `量比 ${vr.toFixed(2)}x`;
+        vrEl.className = 'kline-vol-ratio ' + (vr >= 2 ? 'high' : vr >= 1 ? 'mid' : 'low');
+      }
+
+      // Destroy old charts
+      if (_klineChart)    { _klineChart.remove();    _klineChart    = null; }
+      if (_klineVolChart) { _klineVolChart.remove();  _klineVolChart = null; }
+      document.getElementById('kline-chart').innerHTML     = '';
+      document.getElementById('kline-vol-chart').innerHTML = '';
+
+      const chartOpts = {
+        layout:     { background: { color: '#161b22' }, textColor: '#8b949e' },
+        grid:       { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+        crosshair:  { mode: 1 },
+        rightPriceScale: { borderColor: '#30363d' },
+        timeScale:  { borderColor: '#30363d', timeVisible: true, secondsVisible: false },
+      };
+
+      // ── Price chart ──
+      _klineChart = LightweightCharts.createChart(
+        document.getElementById('kline-chart'),
+        { ...chartOpts, height: 340 }
+      );
+
+      const candleSeries = _klineChart.addCandlestickSeries({
+        upColor:        '#f85149',
+        downColor:      '#3fb950',
+        borderUpColor:  '#f85149',
+        borderDownColor:'#3fb950',
+        wickUpColor:    '#f85149',
+        wickDownColor:  '#3fb950',
+      });
+      candleSeries.setData(data.map(d => ({
+        time: d.date, open: d.open, high: d.high, low: d.low, close: d.close
+      })));
+
+      // MA5
+      const ma5Series = _klineChart.addLineSeries({ color: '#f0883e', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+      ma5Series.setData(data.filter(d => d.ma5 != null).map(d => ({ time: d.date, value: d.ma5 })));
+
+      // MA20
+      const ma20Series = _klineChart.addLineSeries({ color: '#388bfd', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+      ma20Series.setData(data.filter(d => d.ma20 != null).map(d => ({ time: d.date, value: d.ma20 })));
+
+      _klineChart.timeScale().fitContent();
+
+      // ── Volume chart ──
+      _klineVolChart = LightweightCharts.createChart(
+        document.getElementById('kline-vol-chart'),
+        { ...chartOpts, height: 100,
+          rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0.1, bottom: 0 } } }
+      );
+
+      const volSeries = _klineVolChart.addHistogramSeries({
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'vol',
+      });
+      volSeries.setData(data.map(d => ({
+        time:  d.date,
+        value: d.volume,
+        color: d.close >= d.open ? 'rgba(248,81,73,0.55)' : 'rgba(63,185,80,0.55)',
+      })));
+
+      // Vol MA5
+      const vol5Series = _klineVolChart.addLineSeries({
+        color: '#d29922', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: false,
+        priceScaleId: 'vol',
+      });
+      vol5Series.setData(data.filter(d => d.vol5 != null).map(d => ({ time: d.date, value: d.vol5 })));
+
+      _klineVolChart.timeScale().fitContent();
+
+      // Sync crosshair between charts
+      _klineChart.subscribeCrosshairMove(param => {
+        if (_klineVolChart) _klineVolChart.setCrosshairPosition(param.point?.x ?? 0, 0, volSeries);
+      });
+
+    } catch(e) {
+      document.getElementById('kline-modal-meta').textContent = '載入失敗：' + e.message;
+      document.getElementById('kline-chart').innerHTML = '<div class="kline-loading">發生錯誤</div>';
+    }
+  }
 
   // ── 族群分類 ──
   // 層級1：個股代號對應（優先）
@@ -1073,10 +1268,12 @@
   const fYoyVal    = document.getElementById('f-yoy-val');
   const fYoy1En    = document.getElementById('f-yoy1-en');
   const fYoy1Val   = document.getElementById('f-yoy1-val');
-  const fGapEn     = document.getElementById('f-gap-en');
-  const fGapVal    = document.getElementById('f-gap-val');
-  const fRedKEn    = document.getElementById('f-redk-en');
-  const fGreenKEn  = document.getElementById('f-greenk-en');
+  const fGapEn       = document.getElementById('f-gap-en');
+  const fGapVal      = document.getElementById('f-gap-val');
+  const fVolRatioEn  = document.getElementById('f-volratio-en');
+  const fVolRatioVal = document.getElementById('f-volratio-val');
+  const fRedKEn      = document.getElementById('f-redk-en');
+  const fGreenKEn    = document.getElementById('f-greenk-en');
 
   // ── Mini K-bar SVG ──
   function kbarSVG(open, high, low, close, H = 28) {
@@ -1121,6 +1318,7 @@
       prevRanks = newRanks;
       loadCompareStatus();
       loadCrownRef();
+      loadVolRatio();   // 在股票資料載入後才抓量比（server 端 _last_df 已就緒）
     } catch (e) {
       setStatus('error', '❌ 抓取失敗：' + e.message);
     }
@@ -1173,6 +1371,10 @@
     if (fGapEn.checked && fGapVal.value !== '') {
       const t = parseFloat(fGapVal.value);
       if (!isNaN(t)) rows = rows.filter(r => calcGapPct(r) >= t);
+    }
+    if (fVolRatioEn.checked && fVolRatioVal.value !== '') {
+      const t = parseFloat(fVolRatioVal.value);
+      if (!isNaN(t)) rows = rows.filter(r => (volRatioMap[String(r['代號'])] ?? 0) >= t);
     }
     if (fRedKEn.checked)   rows = rows.filter(r => (r['股價'] ?? 0) > (r['開盤'] ?? 0));
     if (fGreenKEn.checked) rows = rows.filter(r => (r['股價'] ?? 0) < (r['開盤'] ?? 0));
@@ -1338,7 +1540,7 @@
       return;
     }
 
-    const DISPLAY = ['排序','代號','名稱','市場','股價','漲跌幅','外資','投信','月(YOY)','月-1(YOY)','開盤','資金(億)','產業類型'];
+    const DISPLAY = ['排序','代號','名稱','市場','股價','漲跌幅','量比','外資','投信','月(YOY)','月-1(YOY)','開盤','資金(億)','產業類型'];
 
     const watchedCodes = getWatchedCodes();
     tbody.innerHTML = rows.map(r => {
@@ -1368,8 +1570,17 @@
             : `<td class="td-rank">${val ?? '—'}</td>`;
         }
         if (col === '代號') {
-          const crown = (prevHistCodes.size > 0 && !prevHistCodes.has(String(val))) ? '<span class="crown">👑</span>' : '';
-          return `<td class="td-code${hl ? ' code-hl' : ''}">${crown}${val ?? '—'}</td>`;
+          const crown  = (prevHistCodes.size > 0 && !prevHistCodes.has(String(val))) ? '<span class="crown">👑</span>' : '';
+          const market = r['市場'] || '上市';
+          return `<td class="td-code${hl ? ' code-hl' : ''}" style="cursor:pointer" title="點擊查看K線圖"
+                      onclick="showKlineModal('${val}','${r['名稱']}','${market}')">${crown}${val ?? '—'}</td>`;
+        }
+        if (col === '量比') {
+          const code = String(r['代號']);
+          const vr   = volRatioMap[code];
+          if (vr == null) return `<td class="td-vol-ratio vr-low">—</td>`;
+          const cls  = vr >= 3 ? 'vr-ex' : vr >= 2 ? 'vr-high' : vr >= 1 ? 'vr-mid' : 'vr-low';
+          return `<td class="td-vol-ratio ${cls}">${vr.toFixed(2)}</td>`;
         }
         if (col === '名稱')    return `<td class="td-name">${val ?? '—'}</td>`;
         if (col === '市場')    return `<td class="td-market" style="font-size:11px;color:var(--muted)">${val ?? '—'}</td>`;
@@ -1649,8 +1860,8 @@
   });
   intervalSel.addEventListener('change', () => { countdown = +intervalSel.value; countdownEl.textContent = countdown; });
 
-  [fChangeEn, fForeignEn, fItufEn, fYoyEn, fYoy1En, fGapEn, fRedKEn, fGreenKEn].forEach((cb, i) => {
-    const ids = ['fl-change','fl-foreign','fl-ituf','fl-yoy','fl-yoy1','fl-gap','fl-redk','fl-greenk'];
+  [fChangeEn, fForeignEn, fItufEn, fYoyEn, fYoy1En, fGapEn, fVolRatioEn, fRedKEn, fGreenKEn].forEach((cb, i) => {
+    const ids = ['fl-change','fl-foreign','fl-ituf','fl-yoy','fl-yoy1','fl-gap','fl-volratio','fl-redk','fl-greenk'];
     cb.addEventListener('change', () => {
       document.getElementById(ids[i]).classList.toggle('active', cb.checked);
       renderTable();
@@ -1660,7 +1871,7 @@
     document.getElementById('fl-new').classList.toggle('active', fNewEn.checked);
     renderTable();
   });
-  [fChangeVal, fYoyVal, fYoy1Val, fGapVal].forEach(inp => inp.addEventListener('input', renderTable));
+  [fChangeVal, fYoyVal, fYoy1Val, fGapVal, fVolRatioVal].forEach(inp => inp.addEventListener('input', renderTable));
 
   // ── Industry tooltip ──
   const ttEl    = document.getElementById('ind-tooltip');
@@ -2270,7 +2481,34 @@
   loadCompareData();   // 自動從 Google Sheets 載入對照資料
   loadSectors();       // fetches sector configs from server DB (falls back to localStorage)
   loadIndustryGroups(); // 載入產業族群 JSON
+  // 注意：loadVolRatio() 在 fetchStocks() 成功後才呼叫，確保 server 端 _last_df 已就緒
 </script>
+
+<!-- K-line Chart Modal -->
+<div id="kline-modal-overlay" class="kline-modal-overlay" onclick="if(event.target===this)closeKlineModal()">
+  <div class="kline-modal">
+    <div class="kline-modal-header">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="kline-modal-title" id="kline-modal-title"></span>
+          <span id="kline-modal-vr" class="kline-vol-ratio"></span>
+        </div>
+        <div class="kline-modal-meta" id="kline-modal-meta"></div>
+      </div>
+      <button class="kline-modal-close" onclick="closeKlineModal()">✕</button>
+    </div>
+    <div class="kline-modal-body">
+      <div class="kline-legend">
+        <span><span class="dot" style="background:#f0883e"></span>MA5</span>
+        <span><span class="dot" style="background:#388bfd"></span>MA20</span>
+        <span><span class="dot" style="background:#d29922"></span>5日均量</span>
+        <span style="color:var(--muted);font-size:10px">紅=漲　綠=跌</span>
+      </div>
+      <div id="kline-chart"></div>
+      <div id="kline-vol-chart"></div>
+    </div>
+  </div>
+</div>
 
 <!-- Industry Groups Modal -->
 <div id="ind-modal-overlay" class="ind-modal-overlay" onclick="if(event.target===this)closeIndModal()">

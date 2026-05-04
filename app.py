@@ -2,6 +2,7 @@ import os
 import io
 import re
 import json
+import time
 import sqlite3
 import threading
 from datetime import datetime, date, timedelta
@@ -11,6 +12,7 @@ import pandas as pd
 import requests
 import twstock
 import gspread
+import yfinance as yf
 from google.oauth2.service_account import Credentials
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -922,6 +924,98 @@ def api_history():
     else:
         dates = get_history_dates()
         return jsonify({'success': True, 'dates': dates})
+
+
+# ---------- K-Line (Yahoo Finance) ----------
+
+@app.route('/api/kline/<code>')
+def api_kline(code):
+    """Return 60-day OHLCV + MA5 + MA20 + Vol5 for a stock from Yahoo Finance."""
+    market = request.args.get('market', '上市')
+    suffix = '.TWO' if market == '上櫃' else '.TW'
+    try:
+        ticker = yf.Ticker(f"{code}{suffix}")
+        hist   = ticker.history(period='3mo')   # ~65 trading days
+        if hist.empty:
+            return jsonify({'success': False, 'error': 'No data from Yahoo Finance'}), 404
+        hist = hist.tail(60).copy()
+        hist['ma5']  = hist['Close'].rolling(5).mean()
+        hist['ma20'] = hist['Close'].rolling(20).mean()
+        hist['vol5'] = hist['Volume'].rolling(5).mean()
+
+        last_vol  = float(hist['Volume'].iloc[-1])
+        last_vol5 = float(hist['vol5'].iloc[-1]) if pd.notna(hist['vol5'].iloc[-1]) else None
+        vol_ratio = round(last_vol / last_vol5, 2) if last_vol5 and last_vol5 > 0 else None
+
+        records = []
+        for idx, row in hist.iterrows():
+            records.append({
+                'date':   idx.strftime('%Y-%m-%d'),
+                'open':   round(float(row['Open']),  2),
+                'high':   round(float(row['High']),  2),
+                'low':    round(float(row['Low']),   2),
+                'close':  round(float(row['Close']), 2),
+                'volume': int(row['Volume']),
+                'ma5':    round(float(row['ma5']),  2) if pd.notna(row['ma5'])  else None,
+                'ma20':   round(float(row['ma20']), 2) if pd.notna(row['ma20']) else None,
+                'vol5':   int(row['vol5'])               if pd.notna(row['vol5']) else None,
+            })
+        return jsonify({'success': True, 'code': code, 'vol_ratio': vol_ratio, 'data': records})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ---------- Vol-Ratio batch (Yahoo Finance) ----------
+
+_vol_ratio_cache = {'ts': 0, 'data': {}}
+
+@app.route('/api/vol-ratio')
+def api_vol_ratio():
+    """Return {code: vol_ratio} for current top-100. Cached 30 min."""
+    now = time.time()
+    if now - _vol_ratio_cache['ts'] < 1800 and _vol_ratio_cache['data']:
+        return jsonify(_vol_ratio_cache['data'])
+
+    global _last_df
+    if _last_df is None or _last_df.empty:
+        return jsonify({})
+
+    try:
+        records    = json.loads(_last_df.to_json(orient='records', force_ascii=False))
+        code_market = {str(r['代號']): r.get('市場', '上市') for r in records}
+    except Exception:
+        return jsonify({})
+
+    tickers_tw  = [f"{c}.TW"  for c, m in code_market.items() if m != '上櫃']
+    tickers_two = [f"{c}.TWO" for c, m in code_market.items() if m == '上櫃']
+    all_tickers = tickers_tw + tickers_two
+    if not all_tickers:
+        return jsonify({})
+
+    try:
+        raw = yf.download(
+            all_tickers, period='1mo',
+            group_by='ticker', auto_adjust=True,
+            progress=False, threads=True
+        )
+        result = {}
+        for ticker in all_tickers:
+            code = ticker.replace('.TWO', '').replace('.TW', '')
+            try:
+                if len(all_tickers) == 1:
+                    vol = raw['Volume'].dropna()
+                else:
+                    vol = raw[ticker]['Volume'].dropna()
+                if len(vol) >= 6:
+                    ratio = round(float(vol.iloc[-1]) / float(vol.iloc[-6:-1].mean()), 2)
+                    result[code] = ratio
+            except Exception:
+                pass
+        _vol_ratio_cache['ts']   = now
+        _vol_ratio_cache['data'] = result
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({})
 
 
 # ---------- Industry Groups ----------
