@@ -5,6 +5,7 @@ import json
 import time
 import sqlite3
 import threading
+import xml.etree.ElementTree as ET
 from datetime import datetime, date, timedelta
 
 import urllib3
@@ -961,6 +962,77 @@ def api_kline(code):
                 'vol5':   int(row['vol5'])               if pd.notna(row['vol5']) else None,
             })
         return jsonify({'success': True, 'code': code, 'vol_ratio': vol_ratio, 'data': records})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ---------- News (Google News RSS — 繁體中文台灣媒體) ----------
+
+_news_cache = {}   # { code: {'ts': float, 'data': list} }
+
+@app.route('/api/news/<code>')
+def api_news(code):
+    """Return recent Traditional Chinese news for a Taiwan stock via Google News RSS."""
+    now = time.time()
+    cached = _news_cache.get(code)
+    if cached and now - cached['ts'] < 1800:   # 30-min cache
+        return jsonify({'success': True, 'code': code, 'data': cached['data']})
+
+    # Build search query: code + company name (if available)
+    name = ''
+    global _last_df
+    if _last_df is not None and not _last_df.empty:
+        row = _last_df[_last_df['代號'].astype(str) == str(code)]
+        if not row.empty:
+            name = str(row.iloc[0].get('名稱', ''))
+
+    query = f"{code} {name} 股票".strip() if name else f"{code} 股票"
+
+    # Google News RSS (繁體中文 / 台灣)
+    rss_url = (
+        "https://news.google.com/rss/search"
+        f"?q={requests.utils.quote(query)}"
+        "&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+    )
+
+    try:
+        resp = requests.get(
+            rss_url, timeout=10,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                              'AppleWebKit/537.36 (KHTML, like Gecko) '
+                              'Chrome/124.0.0.0 Safari/537.36'
+            }
+        )
+        resp.raise_for_status()
+
+        # Parse RSS/XML
+        root    = ET.fromstring(resp.content)
+        channel = root.find('channel')
+        items   = []
+
+        for item in (channel.findall('item') if channel is not None else [])[:10]:
+            title    = item.findtext('title') or ''
+            link     = item.findtext('link')  or ''
+            pub_date = item.findtext('pubDate') or ''
+
+            # <source url="...">媒體名稱</source>
+            src_el   = item.find('source')
+            provider = src_el.text.strip() if src_el is not None and src_el.text else ''
+
+            # Clean up Google's redirect link → keep as-is (browser will follow)
+            if title:
+                items.append({
+                    'title':    title,
+                    'summary':  '',          # Google RSS doesn't include summary
+                    'date':     pub_date,
+                    'provider': provider,
+                    'url':      link,
+                    'thumb':    '',
+                })
+
+        _news_cache[code] = {'ts': now, 'data': items}
+        return jsonify({'success': True, 'code': code, 'data': items})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
